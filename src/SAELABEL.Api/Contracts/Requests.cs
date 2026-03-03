@@ -17,3 +17,18 @@ public sealed class ExportRequest
     public string Xml { get; set; } = string.Empty;
     public string? FileName { get; set; }
 }
+
+public sealed class PrintRequest
+{
+    public string Xml { get; set; } = string.Empty;
+    public string PrinterName { get; set; } = string.Empty;
+    public int Copies { get; set; } = 1;
+    public Dictionary<string, string>? Data { get; set; }
+}
+
+public sealed class ZplRequest
+{
+    public string Xml { get; set; } = string.Empty;
+    public int Copies { get; set; } = 1;
+    public Dictionary<string, string>? Data { get; set; }
+}

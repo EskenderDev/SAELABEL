@@ -76,7 +76,15 @@ public sealed class LabelsController : ControllerBase
         }
 
         var data = request.Data ?? new Dictionary<string, string>();
-        var bytes = await _renderer.RenderToImageAsync(glabelTemplate, data, format);
+        byte[] bytes;
+        try
+        {
+            bytes = await _renderer.RenderToImageAsync(glabelTemplate, data, format);
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, ex.Message);
+        }
 
         var contentType = format switch
         {
@@ -90,6 +98,63 @@ public sealed class LabelsController : ControllerBase
 
         var extension = format == "jpg" ? "jpeg" : format;
         return File(bytes, contentType, $"label.{extension}");
+    }
+
+    [HttpPost("zpl")]
+    public async Task<IActionResult> GenerateZpl([FromBody] ZplRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Xml))
+        {
+            return BadRequest("XML vacío.");
+        }
+
+        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
+        var data = request.Data ?? new Dictionary<string, string>();
+        var copies = request.Copies <= 0 ? 1 : request.Copies;
+
+        try
+        {
+            var zpl = await _renderer.GenerateZplWithCopiesAsync(glabelTemplate, data, copies);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(zpl);
+            return File(bytes, "text/plain", "label.zpl");
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, ex.Message);
+        }
+    }
+
+    [HttpPost("print")]
+    public async Task<IActionResult> Print([FromBody] PrintRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Xml))
+        {
+            return BadRequest("XML vacío.");
+        }
+        if (string.IsNullOrWhiteSpace(request.PrinterName))
+        {
+            return BadRequest("PrinterName es requerido.");
+        }
+
+        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
+        var data = request.Data ?? new Dictionary<string, string>();
+        var copies = request.Copies <= 0 ? 1 : request.Copies;
+
+        try
+        {
+            var ok = await _renderer.PrintToPrinterAsync(glabelTemplate, data, request.PrinterName, copies);
+            if (!ok)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, "No se pudo completar la impresión.");
+            }
+            return Ok(new { printed = true, printer = request.PrinterName, copies });
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            return StatusCode(StatusCodes.Status501NotImplemented, ex.Message);
+        }
     }
 
     [HttpPost("export-saelabels")]
