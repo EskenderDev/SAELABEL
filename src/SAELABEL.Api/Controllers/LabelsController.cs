@@ -44,6 +44,20 @@ public sealed class LabelsController : ControllerBase
         return Ok(xml);
     }
 
+    [HttpPost("convert-to-glabels")]
+    public ActionResult<string> ConvertToGlabels([FromBody] XmlPayload payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.Xml))
+        {
+            return BadRequest("XML vacío.");
+        }
+
+        var saeDoc = SaeLabelsSerializer.Deserialize(payload.Xml);
+        var template = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
+        var xml = GlabelsTemplateXmlSerializer.Serialize(template);
+        return Ok(xml);
+    }
+
     [HttpPost("render")]
     public async Task<IActionResult> Render([FromBody] RenderRequest request)
     {
@@ -76,5 +90,27 @@ public sealed class LabelsController : ControllerBase
 
         var extension = format == "jpg" ? "jpeg" : format;
         return File(bytes, contentType, $"label.{extension}");
+    }
+
+    [HttpPost("export-saelabels")]
+    public IActionResult ExportSaeLabels([FromBody] ExportRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Xml))
+        {
+            return BadRequest("XML vacío.");
+        }
+
+        // Parse + serialize para validar y normalizar antes de exportar
+        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        var normalized = SaeLabelsSerializer.Serialize(saeDoc);
+
+        var fileName = string.IsNullOrWhiteSpace(request.FileName)
+            ? "label.saelabels"
+            : request.FileName!.EndsWith(".saelabels", StringComparison.OrdinalIgnoreCase)
+                ? request.FileName!
+                : $"{request.FileName}.saelabels";
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(normalized);
+        return File(bytes, "application/xml", fileName);
     }
 }
