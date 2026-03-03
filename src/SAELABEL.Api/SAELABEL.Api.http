@@ -1,0 +1,6 @@
+@SAELABEL.Api_HostAddress = http://localhost:5117
+
+GET {{SAELABEL.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

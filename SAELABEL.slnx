@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SAELABEL.Api/SAELABEL.Api.csproj" />
+    <Project Path="src/SAELABEL.Core/SAELABEL.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SAELABEL.Core.Tests/SAELABEL.Core.Tests.csproj" />
+  </Folder>
+</Solution>
