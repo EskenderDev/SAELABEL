@@ -31,3 +31,10 @@ dotnet run --project src/SAELABEL.Api
   - `http://localhost:1420` (dev Tauri/Vite)
   - `http://localhost:4321` y `https://localhost:4321` (Astro)
   - `tauri://localhost` (WebView Tauri)
+
+## Cliente TypeScript desde OpenAPI
+Con la API corriendo, puedes generar cliente tipado para React/Astro:
+
+```bash
+npx @hey-api/openapi-ts --input https://localhost:7097/openapi/v1.json --output ./generated/saelabel-client
+```

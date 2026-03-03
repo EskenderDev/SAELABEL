@@ -6,6 +6,7 @@ using SAELABEL.Core.SaeLabels;
 namespace SAELABEL.Api.Controllers;
 
 [ApiController]
+[Tags("Labels")]
 [Route("api/labels")]
 public sealed class LabelsController : ControllerBase
 {
@@ -18,7 +19,7 @@ public sealed class LabelsController : ControllerBase
         _renderer = renderer;
     }
 
-    [HttpPost("parse")]
+    [HttpPost("parse", Name = "ParseSaeLabels")]
     public ActionResult<SaeLabelsDocument> Parse([FromBody] XmlPayload payload)
     {
         if (string.IsNullOrWhiteSpace(payload.Xml))
@@ -30,7 +31,7 @@ public sealed class LabelsController : ControllerBase
         return Ok(doc);
     }
 
-    [HttpPost("convert-from-glabels")]
+    [HttpPost("convert-from-glabels", Name = "ConvertFromGlabels")]
     public ActionResult<string> ConvertFromGlabels([FromBody] XmlPayload payload)
     {
         if (string.IsNullOrWhiteSpace(payload.Xml))
@@ -44,7 +45,7 @@ public sealed class LabelsController : ControllerBase
         return Ok(xml);
     }
 
-    [HttpPost("convert-to-glabels")]
+    [HttpPost("convert-to-glabels", Name = "ConvertToGlabels")]
     public ActionResult<string> ConvertToGlabels([FromBody] XmlPayload payload)
     {
         if (string.IsNullOrWhiteSpace(payload.Xml))
@@ -58,7 +59,7 @@ public sealed class LabelsController : ControllerBase
         return Ok(xml);
     }
 
-    [HttpPost("render")]
+    [HttpPost("render", Name = "RenderLabelImage")]
     public async Task<IActionResult> Render([FromBody] RenderRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Xml))
@@ -100,7 +101,7 @@ public sealed class LabelsController : ControllerBase
         return File(bytes, contentType, $"label.{extension}");
     }
 
-    [HttpPost("zpl")]
+    [HttpPost("zpl", Name = "GenerateLabelZpl")]
     public async Task<IActionResult> GenerateZpl([FromBody] ZplRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Xml))
@@ -125,7 +126,7 @@ public sealed class LabelsController : ControllerBase
         }
     }
 
-    [HttpPost("print")]
+    [HttpPost("print", Name = "PrintLabel")]
     public async Task<IActionResult> Print([FromBody] PrintRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Xml))
@@ -157,7 +158,7 @@ public sealed class LabelsController : ControllerBase
         }
     }
 
-    [HttpPost("export-saelabels")]
+    [HttpPost("export-saelabels", Name = "ExportSaeLabelsFile")]
     public IActionResult ExportSaeLabels([FromBody] ExportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Xml))
