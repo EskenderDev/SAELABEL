@@ -2,10 +2,46 @@ using SAELABEL.Core.Labels.Caching;
 using SAELABEL.Core.Labels.Servicios;
 using Scalar.AspNetCore;
 using Microsoft.AspNetCore.OpenApi;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("FrontendClients", policy =>
+    {
+        policy
+            .SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrWhiteSpace(origin))
+                {
+                    return false;
+                }
+
+                if (configuredOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                {
+                    return false;
+                }
+
+                var isLocalhost = uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                                  uri.Host.Equals(IPAddress.Loopback.ToString(), StringComparison.OrdinalIgnoreCase);
+
+                var isHttpLocal = (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) && isLocalhost;
+                var isTauri = uri.Scheme.Equals("tauri", StringComparison.OrdinalIgnoreCase);
+
+                return isHttpLocal || isTauri;
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 builder.Services.AddOpenApi("v1", options =>
 {
     options.AddOperationTransformer((operation, context, _) =>
@@ -147,6 +183,7 @@ app.MapScalarApiReference("/scalar", options =>
 });
 
 app.UseHttpsRedirection();
+app.UseCors("FrontendClients");
 app.MapControllers();
 app.Run();
 
