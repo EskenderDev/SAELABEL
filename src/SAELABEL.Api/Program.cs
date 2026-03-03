@@ -1,10 +1,11 @@
 using SAELABEL.Core.Labels.Caching;
 using SAELABEL.Core.Labels.Servicios;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi("v1");
 
 builder.Services.AddSingleton<TemplateCache>();
 builder.Services.AddScoped<PrinterOptimizer>();
@@ -20,10 +21,14 @@ builder.Services.AddScoped<GlabelsTemplateService>();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+app.MapOpenApi("/openapi/{documentName}.json");
+app.MapScalarApiReference("/scalar", options =>
 {
-    app.MapOpenApi();
-}
+    options
+        .WithTitle("SAELABEL API")
+        .WithTheme(ScalarTheme.DeepSpace)
+        .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+});
 
 app.UseHttpsRedirection();
 app.MapControllers();
