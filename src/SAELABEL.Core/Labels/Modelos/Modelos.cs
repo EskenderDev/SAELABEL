@@ -157,11 +157,11 @@ namespace SAELABEL.Core.Labels.Modelos
 
         [JsonPropertyName("stepSize")]
         [XmlAttribute("stepSize")]
-        public int StepSize { get; set; }
+        public double StepSize { get; set; }
 
         [JsonIgnore]
         [XmlIgnore]
-        public int CurrentValue { get; set; }
+        public double CurrentValue { get; set; }
 
         [JsonIgnore]
         [XmlIgnore]
@@ -169,7 +169,7 @@ namespace SAELABEL.Core.Labels.Modelos
 
         public void Initialize()
         {
-            if (int.TryParse(InitialValue, out int initial)) CurrentValue = initial;
+            if (double.TryParse(InitialValue, out double initial)) CurrentValue = initial;
             else CurrentValue = 0;
         }
 

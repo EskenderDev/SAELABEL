@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml.Linq;
+using SAELABEL.Core.Labels.Helpers;
 
 namespace SAELABEL.Core.SaeLabels;
 
@@ -33,14 +34,7 @@ public static class SaeLabelsSerializer
                 )
             ),
             new XElement("objects", document.Objects.Select(WriteObject)),
-            new XElement("variables", document.Variables.Select(v =>
-                new XElement("variable",
-                    new XAttribute("name", v.Name),
-                    new XAttribute("type", v.Type),
-                    new XAttribute("initial", v.InitialValue),
-                    new XAttribute("increment", v.Increment),
-                    new XAttribute("step", v.StepSize)
-                )))
+            new XElement("variables", document.Variables.Select(WriteVariable))
         );
 
         return new XDocument(root).ToString();
@@ -66,7 +60,7 @@ public static class SaeLabelsSerializer
 
         var result = new SaeLabelsDocument
         {
-            Version = A(root, "version", "1.0"),
+            Version = RA(root, "version"),
             Template = new SaeTemplate
             {
                 Brand = A(templateNode, "brand"),
@@ -122,11 +116,16 @@ public static class SaeLabelsSerializer
                 result.Variables.Add(new SaeLabelVariable
                 {
                     Name = A(v, "name"),
-                    Type = A(v, "type", "integer"),
+                    Type = VariableTypeNormalizer.Normalize(A(v, "type", "integer")),
                     InitialValue = A(v, "initial", "0"),
-                    Increment = A(v, "increment", "never"),
-                    StepSize = I(v, "step", 0)
+                    Increment = IncrementModeNormalizer.Normalize(A(v, "increment", "never")),
+                    StepSize = D(v, "step")
                 });
+
+                var parsed = result.Variables[^1];
+                VariableTypeNormalizer.ValidateInitialValue(parsed.Type, parsed.InitialValue);
+                VariableTypeNormalizer.ValidateIncrementCompatibility(parsed.Type, parsed.Increment);
+                VariableTypeNormalizer.ValidateStepSize(parsed.Type, parsed.StepSize, parsed.Increment);
             }
         }
 
@@ -148,8 +147,38 @@ public static class SaeLabelsSerializer
             new XAttribute("checksum", o.Checksum),
             new XElement("content", o.Content));
 
+    private static XElement WriteVariable(SaeLabelVariable v)
+    {
+        var variableNode = new XElement("variable",
+            new XAttribute("name", v.Name),
+            new XAttribute("type", VariableTypeNormalizer.Normalize(v.Type)),
+            new XAttribute("initial", v.InitialValue));
+
+        var normalizedType = VariableTypeNormalizer.Normalize(v.Type);
+        if (normalizedType == VariableTypeNormalizer.Integer || normalizedType == VariableTypeNormalizer.FloatingPoint)
+        {
+            var increment = IncrementModeNormalizer.Normalize(v.Increment);
+            variableNode.Add(new XAttribute("increment", increment));
+            if (increment != IncrementModeNormalizer.None)
+            {
+                variableNode.Add(new XAttribute("step", F(v.StepSize)));
+            }
+        }
+
+        return variableNode;
+    }
+
     private static string F(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
     private static string A(XElement node, string name, string fallback = "") => node.Attribute(name)?.Value ?? fallback;
+    private static string RA(XElement node, string name)
+    {
+        var value = node.Attribute(name)?.Value;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidDataException($"Falta atributo requerido '{name}'.");
+        }
+        return value;
+    }
 
     private static double D(XElement node, string name)
         => double.TryParse(A(node, name), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : 0.0;

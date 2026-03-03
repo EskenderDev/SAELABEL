@@ -1,11 +1,10 @@
 using SAELABEL.Core.Labels.Modelos;
+using System.Globalization;
 
 namespace SAELABEL.Core.Labels.Helpers
 {
     public static class IncrementalVariableHelper
     {
-        // Estado global para mantener los valores entre sesiones
-        private static readonly Dictionary<string, int> _sessionCounters = new Dictionary<string, int>();
         private static readonly object _lock = new object();
 
         /// <summary>
@@ -31,29 +30,7 @@ namespace SAELABEL.Core.Labels.Helpers
                 {
                     if (variable.Increment == "never") continue;
 
-                    // Parsear el valor inicial
-                    if (int.TryParse(variable.InitialValue, out int initialValue))
-                    {
-                        variable.CurrentValue = initialValue;
-                    }
-                    else
-                    {
-                        variable.CurrentValue = 0;
-                    }
-
-                    // Para per_session, verificar si ya existe un valor guardado
-                    if (variable.Increment == "per_session")
-                    {
-                        var sessionKey = GetSessionKey(template, variable.Name);
-                        if (_sessionCounters.TryGetValue(sessionKey, out int sessionValue))
-                        {
-                            variable.CurrentValue = sessionValue;
-                        }
-                        else
-                        {
-                            _sessionCounters[sessionKey] = variable.CurrentValue;
-                        }
-                    }
+                    variable.CurrentValue = ParseNumeric(variable.InitialValue);
                 }
             }
         }
@@ -79,40 +56,31 @@ namespace SAELABEL.Core.Labels.Helpers
                 {
                     if (variable.Increment == "never") continue;
 
-                    int valueToUse = variable.CurrentValue;
+                    double valueToUse = variable.CurrentValue;
 
                     // Calcular el valor según el tipo de incremento
                     switch (variable.Increment)
                     {
                         case "per_copy":
-                            // Incrementar por cada copia
                             valueToUse = variable.CurrentValue + (variable.StepSize * (currentCopy - 1));
                             break;
 
                         case "per_item":
-                            // Incrementar por cada ítem (registro de datos diferente)
                             valueToUse = variable.CurrentValue + (variable.StepSize * (currentItem - 1));
                             break;
 
                         case "per_page":
-                            // Incrementar por cada página
                             valueToUse = variable.CurrentValue + (variable.StepSize * (currentPage - 1));
-                            break;
-
-                        case "per_session":
-                            // Usar el valor actual de sesión
-                            valueToUse = variable.CurrentValue;
                             break;
                     }
 
-                    // Reemplazar en los datos procesados
+                    var valueAsText = FormatByType(variable.Type, valueToUse, variable.InitialValue);
                     var varKey = $"${{{variable.Name}}}";
-                    processedData[variable.Name] = valueToUse.ToString();
+                    processedData[variable.Name] = valueAsText;
 
-                    // También agregar con el formato ${nombre}
                     if (processedData.ContainsKey(varKey))
                     {
-                        processedData[varKey] = valueToUse.ToString();
+                        processedData[varKey] = valueAsText;
                     }
                 }
             }
@@ -138,7 +106,7 @@ namespace SAELABEL.Core.Labels.Helpers
                     if (variable.Increment == "never" || variable.StepSize == 0)
                         continue;
 
-                    int increment = 0;
+                    double increment = 0;
 
                     switch (variable.Increment)
                     {
@@ -154,33 +122,19 @@ namespace SAELABEL.Core.Labels.Helpers
                             increment = variable.StepSize * (pagesPrinted > 0 ? pagesPrinted : copiesPrinted);
                             break;
 
-                        case "per_session":
-                            // Para per_session, incrementar según las copias totales impresas
-                            increment = variable.StepSize * copiesPrinted;
-                            break;
                     }
 
                     variable.CurrentValue += increment;
-
-                    // Actualizar el contador de sesión si aplica
-                    if (variable.Increment == "per_session")
-                    {
-                        var sessionKey = GetSessionKey(template, variable.Name);
-                        _sessionCounters[sessionKey] = variable.CurrentValue;
-                    }
                 }
             }
         }
 
         /// <summary>
-        /// Resetea los contadores de sesión (útil para reiniciar la aplicación)
+        /// Reinicia las variables a sus valores iniciales.
         /// </summary>
         public static void ResetSessionCounters()
         {
-            lock (_lock)
-            {
-                _sessionCounters.Clear();
-            }
+            // No persistent session counters in SAELABEL implementation.
         }
 
         /// <summary>
@@ -195,21 +149,7 @@ namespace SAELABEL.Core.Labels.Helpers
                 var variable = template.Variables.FirstOrDefault(v => v.Name == variableName);
                 if (variable != null)
                 {
-                    if (int.TryParse(variable.InitialValue, out int initialValue))
-                    {
-                        variable.CurrentValue = initialValue;
-                    }
-                    else
-                    {
-                        variable.CurrentValue = 0;
-                    }
-
-                    // También actualizar sesión si aplica
-                    if (variable.Increment == "per_session")
-                    {
-                        var sessionKey = GetSessionKey(template, variableName);
-                        _sessionCounters[sessionKey] = variable.CurrentValue;
-                    }
+                    variable.CurrentValue = ParseNumeric(variable.InitialValue);
                 }
             }
         }
@@ -224,7 +164,7 @@ namespace SAELABEL.Core.Labels.Helpers
             lock (_lock)
             {
                 var variable = template.Variables.FirstOrDefault(v => v.Name == variableName);
-                return variable?.CurrentValue ?? 0;
+                return variable is null ? 0 : (int)Math.Round(variable.CurrentValue);
             }
         }
 
@@ -241,22 +181,8 @@ namespace SAELABEL.Core.Labels.Helpers
                 if (variable != null)
                 {
                     variable.CurrentValue = value;
-
-                    if (variable.Increment == "per_session")
-                    {
-                        var sessionKey = GetSessionKey(template, variableName);
-                        _sessionCounters[sessionKey] = value;
-                    }
                 }
             }
-        }
-
-        /// <summary>
-        /// Genera una clave única para el contador de sesión
-        /// </summary>
-        private static string GetSessionKey(GlabelsTemplate template, string variableName)
-        {
-            return $"{template.FilePath}_{variableName}";
         }
 
         /// <summary>
@@ -279,6 +205,22 @@ namespace SAELABEL.Core.Labels.Helpers
                 }).ToList();
             }
         }
+
+        private static double ParseNumeric(string value)
+        {
+            return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : 0;
+        }
+
+        private static string FormatByType(string type, double value, string fallback)
+        {
+            var normalized = VariableTypeNormalizer.Normalize(type, VariableTypeNormalizer.String);
+            return normalized switch
+            {
+                VariableTypeNormalizer.Integer => Math.Round(value).ToString("0", CultureInfo.InvariantCulture),
+                VariableTypeNormalizer.FloatingPoint => value.ToString("0.###############", CultureInfo.InvariantCulture),
+                _ => fallback
+            };
+        }
     }
 
     /// <summary>
@@ -289,8 +231,8 @@ namespace SAELABEL.Core.Labels.Helpers
         public string Name { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public string InitialValue { get; set; } = string.Empty;
-        public int CurrentValue { get; set; }
-        public int StepSize { get; set; }
+        public double CurrentValue { get; set; }
+        public double StepSize { get; set; }
         public string Increment { get; set; } = string.Empty;
     }
 }

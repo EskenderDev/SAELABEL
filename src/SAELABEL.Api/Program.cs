@@ -1,5 +1,6 @@
 using SAELABEL.Core.Labels.Caching;
 using SAELABEL.Core.Labels.Servicios;
+using SAELABEL.Api.Services;
 using Scalar.AspNetCore;
 using Microsoft.AspNetCore.OpenApi;
 using System.Net;
@@ -170,6 +171,9 @@ else
     builder.Services.AddScoped<ILabelRenderer, UnsupportedLabelRenderer>();
 }
 builder.Services.AddScoped<GlabelsTemplateService>();
+builder.Services.AddSingleton<ISaeLabelsXmlValidator, SaeLabelsXmlValidator>();
+builder.Services.AddSingleton<IGlabelsXmlValidator, GlabelsXmlValidator>();
+builder.Services.AddSingleton<IEditorLibraryStore, EditorLibraryStore>();
 
 var app = builder.Build();
 

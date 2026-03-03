@@ -1,4 +1,5 @@
 using SAELABEL.Core.Labels.Modelos;
+using SAELABEL.Core.Labels.Helpers;
 using System.Globalization;
 using System.Xml.Linq;
 
@@ -89,12 +90,23 @@ public static class GlabelsTemplateXmlSerializer
             var varsNode = new XElement("Variables");
             foreach (var v in template.Variables)
             {
-                varsNode.Add(new XElement("Variable",
+                var normalizedType = VariableTypeNormalizer.Normalize(v.Type);
+                var variableNode = new XElement("Variable",
                     new XAttribute("name", v.Name),
-                    new XAttribute("type", v.Type),
-                    new XAttribute("initialValue", v.InitialValue),
-                    new XAttribute("increment", v.Increment),
-                    new XAttribute("stepSize", v.StepSize)));
+                    new XAttribute("type", ToGlabelsTypeId(normalizedType)),
+                    new XAttribute("initialValue", v.InitialValue));
+
+                if (normalizedType == VariableTypeNormalizer.Integer || normalizedType == VariableTypeNormalizer.FloatingPoint)
+                {
+                    var increment = IncrementModeNormalizer.Normalize(v.Increment);
+                    variableNode.Add(new XAttribute("increment", increment));
+                    if (increment != IncrementModeNormalizer.None)
+                    {
+                        variableNode.Add(new XAttribute("stepSize", v.StepSize.ToString("0.###############", CultureInfo.InvariantCulture)));
+                    }
+                }
+
+                varsNode.Add(variableNode);
             }
 
             root.Add(varsNode);
@@ -119,4 +131,7 @@ public static class GlabelsTemplateXmlSerializer
     ];
 
     private static string Pt(double v) => $"{v.ToString("0.####", CultureInfo.InvariantCulture)}pt";
+
+    private static string ToGlabelsTypeId(string normalizedType) =>
+        normalizedType == VariableTypeNormalizer.FloatingPoint ? "float" : normalizedType;
 }

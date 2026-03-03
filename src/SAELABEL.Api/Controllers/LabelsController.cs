@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using SAELABEL.Api.Contracts;
+using SAELABEL.Api.Services;
 using SAELABEL.Core.Labels.Servicios;
 using SAELABEL.Core.SaeLabels;
 
@@ -12,11 +13,19 @@ public sealed class LabelsController : ControllerBase
 {
     private readonly GlabelsTemplateService _glabels;
     private readonly ILabelRenderer _renderer;
+    private readonly ISaeLabelsXmlValidator _saeXmlValidator;
+    private readonly IGlabelsXmlValidator _glabelsXmlValidator;
 
-    public LabelsController(GlabelsTemplateService glabels, ILabelRenderer renderer)
+    public LabelsController(
+        GlabelsTemplateService glabels,
+        ILabelRenderer renderer,
+        ISaeLabelsXmlValidator saeXmlValidator,
+        IGlabelsXmlValidator glabelsXmlValidator)
     {
         _glabels = glabels;
         _renderer = renderer;
+        _saeXmlValidator = saeXmlValidator;
+        _glabelsXmlValidator = glabelsXmlValidator;
     }
 
     [HttpPost("parse", Name = "ParseSaeLabels")]
@@ -27,8 +36,16 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        var doc = SaeLabelsSerializer.Deserialize(payload.Xml);
-        return Ok(doc);
+        try
+        {
+            _saeXmlValidator.Validate(payload.Xml);
+            var doc = SaeLabelsSerializer.Deserialize(payload.Xml);
+            return Ok(doc);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost("convert-from-glabels", Name = "ConvertFromGlabels")]
@@ -39,10 +56,18 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        var template = _glabels.ParseTemplateXml(payload.Xml);
-        var saeDoc = SaeLabelsConverter.FromGlabelsTemplate(template);
-        var xml = SaeLabelsSerializer.Serialize(saeDoc);
-        return Ok(xml);
+        try
+        {
+            _glabelsXmlValidator.Validate(payload.Xml);
+            var template = _glabels.ParseTemplateXml(payload.Xml);
+            var saeDoc = SaeLabelsConverter.FromGlabelsTemplate(template);
+            var xml = SaeLabelsSerializer.Serialize(saeDoc);
+            return Ok(xml);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost("convert-to-glabels", Name = "ConvertToGlabels")]
@@ -53,10 +78,18 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        var saeDoc = SaeLabelsSerializer.Deserialize(payload.Xml);
-        var template = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
-        var xml = GlabelsTemplateXmlSerializer.Serialize(template);
-        return Ok(xml);
+        try
+        {
+            _saeXmlValidator.Validate(payload.Xml);
+            var saeDoc = SaeLabelsSerializer.Deserialize(payload.Xml);
+            var template = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
+            var xml = GlabelsTemplateXmlSerializer.Serialize(template);
+            return Ok(xml);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost("render", Name = "RenderLabelImage")]
@@ -67,7 +100,17 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        SAELABEL.Core.SaeLabels.SaeLabelsDocument saeDoc;
+        try
+        {
+            _saeXmlValidator.Validate(request.Xml);
+            saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
         var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
 
         var format = string.IsNullOrWhiteSpace(request.Format) ? "png" : request.Format.ToLowerInvariant();
@@ -109,7 +152,17 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        SAELABEL.Core.SaeLabels.SaeLabelsDocument saeDoc;
+        try
+        {
+            _saeXmlValidator.Validate(request.Xml);
+            saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
         var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
         var data = request.Data ?? new Dictionary<string, string>();
         var copies = request.Copies <= 0 ? 1 : request.Copies;
@@ -138,7 +191,17 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("PrinterName es requerido.");
         }
 
-        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        SAELABEL.Core.SaeLabels.SaeLabelsDocument saeDoc;
+        try
+        {
+            _saeXmlValidator.Validate(request.Xml);
+            saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
         var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
         var data = request.Data ?? new Dictionary<string, string>();
         var copies = request.Copies <= 0 ? 1 : request.Copies;
@@ -166,9 +229,18 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        // Parse + serialize para validar y normalizar antes de exportar
-        var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
-        var normalized = SaeLabelsSerializer.Serialize(saeDoc);
+        string normalized;
+        try
+        {
+            _saeXmlValidator.Validate(request.Xml);
+            // Parse + serialize para validar y normalizar antes de exportar
+            var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+            normalized = SaeLabelsSerializer.Serialize(saeDoc);
+        }
+        catch (InvalidDataException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         var fileName = string.IsNullOrWhiteSpace(request.FileName)
             ? "label.saelabels"

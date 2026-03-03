@@ -55,5 +55,5 @@ public sealed class SaeLabelVariable
     public string Type { get; set; } = "integer";
     public string InitialValue { get; set; } = "0";
     public string Increment { get; set; } = "never";
-    public int StepSize { get; set; }
+    public double StepSize { get; set; }
 }

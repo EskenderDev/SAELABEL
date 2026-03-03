@@ -302,10 +302,10 @@ namespace SAELABEL.Core.Labels.Servicios
 
                     // Parsear StepSize
                     var stepSizeValue = varElement.Attribute("stepSize")?.Value;
-                    int stepSize = 0;
+                    double stepSize = 0;
                     if (!string.IsNullOrEmpty(stepSizeValue))
                     {
-                        if (!int.TryParse(stepSizeValue, out stepSize))
+                        if (!double.TryParse(stepSizeValue, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out stepSize))
                         {
                             _logger?.LogWarning($"StepSize no válido '{stepSizeValue}' para variable '{name}'. Usando 0.");
                         }
@@ -317,16 +317,21 @@ namespace SAELABEL.Core.Labels.Servicios
 
                     // Parsear valor inicial
                     var initialValue = varElement.Attribute("initialValue")?.Value ?? "0";
-                    int currentValue = 0;
-                    if (int.TryParse(initialValue, out int parsed))
+                    double currentValue = 0;
+                    if (double.TryParse(initialValue, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed))
                     {
                         currentValue = parsed;
                     }
 
+                    var typeValue = VariableTypeNormalizer.Normalize(varElement.Attribute("type")?.Value ?? "integer");
+                    VariableTypeNormalizer.ValidateInitialValue(typeValue, initialValue);
+                    VariableTypeNormalizer.ValidateIncrementCompatibility(typeValue, incrementValue);
+                    VariableTypeNormalizer.ValidateStepSize(typeValue, stepSize, incrementValue);
+
                     var variable = new TemplateVariable
                     {
                         Name = name,
-                        Type = varElement.Attribute("type")?.Value ?? "integer",
+                        Type = typeValue,
                         InitialValue = initialValue,
                         CurrentValue = currentValue,
                         StepSize = stepSize,
@@ -339,7 +344,7 @@ namespace SAELABEL.Core.Labels.Servicios
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError($"Error procesando variable: {varElement}", ex);
+                    throw new InvalidDataException($"Error procesando variable '{varElement.Attribute("name")?.Value ?? "desconocida"}': {ex.Message}", ex);
                 }
             }
 
@@ -356,32 +361,15 @@ namespace SAELABEL.Core.Labels.Servicios
 
             var normalized = increment.ToLower().Trim();
 
-            // Valores válidos
-            var validIncrements = new Dictionary<string, string>
-    {
-        { "never", "never" },
-        { "per_copy", "per_copy" },
-        { "per_item", "per_item" },
-        { "per_page", "per_page" },
-        { "per_session", "per_session" },
-        // Alias comunes
-        { "percopy", "per_copy" },
-        { "peritem", "per_item" },
-        { "perpage", "per_page" },
-        { "persession", "per_session" },
-        { "copy", "per_copy" },
-        { "item", "per_item" },
-        { "page", "per_page" },
-        { "session", "per_session" }
-    };
-
-            if (validIncrements.TryGetValue(normalized, out string validValue))
+            try
             {
-                return validValue;
+                return IncrementModeNormalizer.Normalize(normalized);
             }
-
-            _logger?.LogWarning($"Valor de increment no válido '{increment}'. Usando 'never'.");
-            return "never";
+            catch (InvalidDataException ex)
+            {
+                _logger?.LogWarning(ex, "Valor de increment no válido '{Increment}'. Usando 'never'.", increment);
+                return "never";
+            }
         }
         // Helpers para parsing de enums
         private TextAlignment ParseTextAlignment(string align)

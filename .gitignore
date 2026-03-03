@@ -7,3 +7,5 @@ TestResults/
 *.cache
 *.pdb
 *.log
+src/SAELABEL.Api/App_Data/*.db
+src/SAELABEL.Api/App_Data/*.json

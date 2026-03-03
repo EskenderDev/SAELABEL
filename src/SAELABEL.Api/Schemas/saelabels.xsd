@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="unqualified">
+  <xs:element name="saelabels">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="template">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="label_rectangle">
+                <xs:complexType>
+                  <xs:attribute name="width_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="height_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="round_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="x_waste_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="y_waste_pt" type="xs:decimal" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="layout">
+                <xs:complexType>
+                  <xs:attribute name="dx_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="dy_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="nx" type="xs:int" use="required" />
+                  <xs:attribute name="ny" type="xs:int" use="required" />
+                  <xs:attribute name="x0_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="y0_pt" type="xs:decimal" use="required" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="brand" type="xs:string" use="required" />
+            <xs:attribute name="description" type="xs:string" use="required" />
+            <xs:attribute name="part" type="xs:string" use="required" />
+            <xs:attribute name="size" type="xs:string" use="required" />
+            <xs:attribute name="product_url" type="xs:string" use="optional" />
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="objects" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="object" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="content" type="xs:string" minOccurs="0" />
+                  </xs:sequence>
+                  <xs:attribute name="type" type="xs:string" use="required" />
+                  <xs:attribute name="x_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="y_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="w_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="h_pt" type="xs:decimal" use="required" />
+                  <xs:attribute name="style" type="xs:string" use="optional" />
+                  <xs:attribute name="color" type="xs:string" use="optional" />
+                  <xs:attribute name="dx_pt" type="xs:decimal" use="optional" />
+                  <xs:attribute name="dy_pt" type="xs:decimal" use="optional" />
+                  <xs:attribute name="show_text" type="xs:boolean" use="optional" />
+                  <xs:attribute name="checksum" type="xs:boolean" use="optional" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="variables" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="variable" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="name" type="xs:string" use="required" />
+                  <xs:attribute name="type" type="variableTypeType" use="optional" />
+                  <xs:attribute name="initial" type="xs:string" use="optional" />
+                  <xs:attribute name="increment" type="incrementModeType" use="optional" />
+                  <xs:attribute name="step" type="xs:decimal" use="optional" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:string" use="required" />
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="incrementModeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="never" />
+      <xs:enumeration value="per_item" />
+      <xs:enumeration value="per_copy" />
+      <xs:enumeration value="per_page" />
+      <xs:enumeration value="item" />
+      <xs:enumeration value="copy" />
+      <xs:enumeration value="page" />
+      <xs:enumeration value="copia" />
+      <xs:enumeration value="pagina" />
+      <xs:enumeration value="página" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="variableTypeType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="integer" />
+      <xs:enumeration value="floating_point" />
+      <xs:enumeration value="string" />
+      <xs:enumeration value="color" />
+      <xs:enumeration value="boolean" />
+      <xs:enumeration value="date" />
+      <xs:enumeration value="datetime" />
+      <xs:enumeration value="guid" />
+      <xs:enumeration value="int" />
+      <xs:enumeration value="float" />
+      <xs:enumeration value="double" />
+      <xs:enumeration value="decimal" />
+      <xs:enumeration value="text" />
+      <xs:enumeration value="hex_color" />
+      <xs:enumeration value="bool" />
+      <xs:enumeration value="date_time" />
+      <xs:enumeration value="uuid" />
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>
