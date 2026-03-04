@@ -8,11 +8,11 @@ namespace SAELABEL.Core.Labels.Servicios
     {
         private readonly string _basePath;
         private readonly ILogger<LabelsTemplateManager> _logger;
-        private readonly GlabelsTemplateService _templateService;
+        private readonly SaeLabelsTemplateService _templateService;
 
         public LabelsTemplateManager(
             ILogger<LabelsTemplateManager> logger,
-            GlabelsTemplateService templateService)
+            SaeLabelsTemplateService templateService)
         {
             _logger = logger;
             _templateService = templateService;
@@ -74,7 +74,7 @@ namespace SAELABEL.Core.Labels.Servicios
             return templates;
         }
 
-        public async Task<GlabelsTemplate> LoadTemplateAsync(string relativePath)
+        public async Task<SaeLabelsTemplate> LoadTemplateAsync(string relativePath)
         {
             var fullPath = Path.Combine(_basePath, relativePath);
 
@@ -88,7 +88,7 @@ namespace SAELABEL.Core.Labels.Servicios
             return _templateService.LoadTemplate(fullPath);
         }
 
-        public async Task SaveTemplateAsync(string relativePath, GlabelsTemplate template)
+        public async Task SaveTemplateAsync(string relativePath, SaeLabelsTemplate template)
         {
             // Implementar guardado si es necesario (XML o JSON)
             // Por ahora nos enfocamos en lectura

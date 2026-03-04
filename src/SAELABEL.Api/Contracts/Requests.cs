@@ -24,6 +24,7 @@ public sealed class PrintRequest
     public string PrinterName { get; set; } = string.Empty;
     public int Copies { get; set; } = 1;
     public Dictionary<string, string>? Data { get; set; }
+    public List<Dictionary<string, string>>? DataList { get; set; }
 }
 
 public sealed class ZplRequest

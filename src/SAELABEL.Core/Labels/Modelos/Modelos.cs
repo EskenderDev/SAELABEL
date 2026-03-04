@@ -3,7 +3,7 @@ using System.Xml.Serialization;
 
 namespace SAELABEL.Core.Labels.Modelos
 {
-    public class GlabelsTemplate
+    public class SaeLabelsTemplate
     {
         [JsonPropertyName("brand")]
         public string Brand { get; set; } = string.Empty;
@@ -258,8 +258,15 @@ namespace SAELABEL.Core.Labels.Modelos
         public new bool LockAspectRatio { get; set; } = true;
     }
 
+    public class PathObject : TemplateObject
+    {
+        public string Data { get; set; } = string.Empty;
+        public string FillColor { get; set; } = "none";
+        public string LineColor { get; set; } = "#000000";
+        public double LineWidth { get; set; } = 1.0;
+    }
+
     public enum TextAlignment { Left, Center, Right }
     public enum VerticalAlignment { Top, Middle, Bottom }
     public enum WrapMode { Word, Character, None }
 }
-

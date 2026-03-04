@@ -10,7 +10,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// <summary>
         /// Verifica si la plantilla tiene variables autoincrementales
         /// </summary>
-        public static bool HasIncrementalVariables(GlabelsTemplate template)
+        public static bool HasIncrementalVariables(SaeLabelsTemplate template)
         {
             return template?.Variables?.Any(v =>
                 v.Increment != "never" &&
@@ -20,7 +20,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// <summary>
         /// Inicializa las variables autoincrementales de la plantilla
         /// </summary>
-        public static void InitializeIncrementalVariables(GlabelsTemplate template)
+        public static void InitializeIncrementalVariables(SaeLabelsTemplate template)
         {
             if (template?.Variables == null) return;
 
@@ -39,7 +39,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// Procesa las variables incrementales para una copia/ítem específico
         /// </summary>
         public static Dictionary<string, string> ProcessIncrementalVariables(
-            GlabelsTemplate template,
+            SaeLabelsTemplate template,
             Dictionary<string, string> baseData,
             int currentCopy = 1,
             int currentItem = 1,
@@ -54,34 +54,61 @@ namespace SAELABEL.Core.Labels.Helpers
             {
                 foreach (var variable in template.Variables)
                 {
-                    if (variable.Increment == "never") continue;
-
-                    double valueToUse = variable.CurrentValue;
-
-                    // Calcular el valor según el tipo de incremento
-                    switch (variable.Increment)
+                    // Si el diccionario de datos (Excel/Manual) ya proporciona un valor para esta variable,
+                    // y la variable no es estrictamente de autoincremento (o aunque lo sea, le daremos prioridad al dato provisto),
+                    // tomamos el valor provisto.
+                    bool hasProvidedData = false;
+                    string providedValue = "";
+                    if (baseData.TryGetValue(variable.Name, out var val) || baseData.TryGetValue($"${{{variable.Name}}}", out val))
                     {
-                        case "per_copy":
-                            valueToUse = variable.CurrentValue + (variable.StepSize * (currentCopy - 1));
-                            break;
-
-                        case "per_item":
-                            valueToUse = variable.CurrentValue + (variable.StepSize * (currentItem - 1));
-                            break;
-
-                        case "per_page":
-                            valueToUse = variable.CurrentValue + (variable.StepSize * (currentPage - 1));
-                            break;
+                        hasProvidedData = true;
+                        providedValue = val;
                     }
 
-                    var valueAsText = FormatByType(variable.Type, valueToUse, variable.InitialValue);
+                    string valueAsText;
+                    if (hasProvidedData && variable.Increment == "never")
+                    {
+                        valueAsText = providedValue;
+                    }
+                    else
+                    {
+                        // Priorizar el valor proporcionado (e.g. desde el modal de impresión) como base para el incremento
+                        double baseValue = hasProvidedData ? ParseNumeric(providedValue) : variable.CurrentValue;
+                        double valueToUse = baseValue;
+
+                        // Calcular el valor según el tipo de incremento
+                        if (variable.Increment != "never" && variable.Increment != "nunca")
+                        {
+                            switch (variable.Increment)
+                            {
+                                case "per_copy":
+                                case "por_copia":
+                                    valueToUse = baseValue + (variable.StepSize * (currentCopy - 1));
+                                    break;
+
+                                case "per_item":
+                                case "por_item":
+                                case "por_elemento":
+                                    valueToUse = baseValue + (variable.StepSize * (currentItem - 1));
+                                    break;
+
+                                case "per_page":
+                                case "por_pagina":
+                                    valueToUse = baseValue + (variable.StepSize * (currentPage - 1));
+                                    break;
+                            }
+                        }
+
+                        valueAsText = FormatByType(variable.Type, valueToUse, variable.InitialValue);
+                    }
+
                     var varKey = $"${{{variable.Name}}}";
+                    
+                    // Aseguramos que el nombre limpio esté en el diccionario
                     processedData[variable.Name] = valueAsText;
 
-                    if (processedData.ContainsKey(varKey))
-                    {
-                        processedData[varKey] = valueAsText;
-                    }
+                    // También aseguramos el formato ${Nombre} por si se usa así en la búsqueda
+                    processedData[varKey] = valueAsText;
                 }
             }
 
@@ -92,7 +119,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// Actualiza los contadores después de imprimir
         /// </summary>
         public static void UpdateIncrementalVariables(
-            GlabelsTemplate template,
+            SaeLabelsTemplate template,
             int copiesPrinted,
             int itemsPrinted = 0,
             int pagesPrinted = 0)
@@ -140,7 +167,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// <summary>
         /// Resetea una variable específica a su valor inicial
         /// </summary>
-        public static void ResetVariable(GlabelsTemplate template, string variableName)
+        public static void ResetVariable(SaeLabelsTemplate template, string variableName)
         {
             if (template?.Variables == null) return;
 
@@ -157,7 +184,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// <summary>
         /// Obtiene el valor actual de una variable
         /// </summary>
-        public static int GetVariableValue(GlabelsTemplate template, string variableName)
+        public static int GetVariableValue(SaeLabelsTemplate template, string variableName)
         {
             if (template?.Variables == null) return 0;
 
@@ -171,7 +198,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// <summary>
         /// Establece el valor de una variable
         /// </summary>
-        public static void SetVariableValue(GlabelsTemplate template, string variableName, int value)
+        public static void SetVariableValue(SaeLabelsTemplate template, string variableName, int value)
         {
             if (template?.Variables == null) return;
 
@@ -188,7 +215,7 @@ namespace SAELABEL.Core.Labels.Helpers
         /// <summary>
         /// Obtiene información de todas las variables de la plantilla
         /// </summary>
-        public static List<VariableInfo> GetVariablesInfo(GlabelsTemplate template)
+        public static List<VariableInfo> GetVariablesInfo(SaeLabelsTemplate template)
         {
             if (template?.Variables == null) return new List<VariableInfo>();
 
@@ -236,4 +263,3 @@ namespace SAELABEL.Core.Labels.Helpers
         public string Increment { get; set; } = string.Empty;
     }
 }
-

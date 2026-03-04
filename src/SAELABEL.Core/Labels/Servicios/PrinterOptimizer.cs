@@ -14,7 +14,7 @@ namespace SAELABEL.Core.Labels.Servicios
             _logger = logger;
         }
 
-        public string GenerateZPL(GlabelsTemplate template, Dictionary<string, string> data)
+        public string GenerateZPL(SaeLabelsTemplate template, Dictionary<string, string> data)
         {
             try
             {

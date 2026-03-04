@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using SAELABEL.Api.Contracts;
 using SAELABEL.Api.Services;
 using SAELABEL.Core.Labels.Servicios;
-using SAELABEL.Core.SaeLabels;
+using SAELABEL.Core.Labels.Modelos;
 
 namespace SAELABEL.Api.Controllers;
 
@@ -11,25 +11,31 @@ namespace SAELABEL.Api.Controllers;
 [Route("api/labels")]
 public sealed class LabelsController : ControllerBase
 {
-    private readonly GlabelsTemplateService _glabels;
+    private readonly SaeLabelsTemplateService _glabels;
     private readonly ILabelRenderer _renderer;
     private readonly ISaeLabelsXmlValidator _saeXmlValidator;
-    private readonly IGlabelsXmlValidator _glabelsXmlValidator;
+    private readonly ILogicalPrinterStore _printerStore;
+    private readonly SaeTicketsTemplateService _ticketService;
+    private readonly IEditorLibraryStore _libraryStore;
 
     public LabelsController(
-        GlabelsTemplateService glabels,
+        SaeLabelsTemplateService glabels,
         ILabelRenderer renderer,
         ISaeLabelsXmlValidator saeXmlValidator,
-        IGlabelsXmlValidator glabelsXmlValidator)
+        ILogicalPrinterStore printerStore,
+        SaeTicketsTemplateService ticketService,
+        IEditorLibraryStore libraryStore)
     {
         _glabels = glabels;
         _renderer = renderer;
         _saeXmlValidator = saeXmlValidator;
-        _glabelsXmlValidator = glabelsXmlValidator;
+        _printerStore = printerStore;
+        _ticketService = ticketService;
+        _libraryStore = libraryStore;
     }
 
     [HttpPost("parse", Name = "ParseSaeLabels")]
-    public ActionResult<SaeLabelsDocument> Parse([FromBody] XmlPayload payload)
+    public ActionResult<SaeLabelsTemplate> Parse([FromBody] XmlPayload payload)
     {
         if (string.IsNullOrWhiteSpace(payload.Xml))
         {
@@ -39,7 +45,7 @@ public sealed class LabelsController : ControllerBase
         try
         {
             _saeXmlValidator.Validate(payload.Xml);
-            var doc = SaeLabelsSerializer.Deserialize(payload.Xml);
+            var doc = _glabels.ParseTemplateXml(payload.Xml);
             return Ok(doc);
         }
         catch (InvalidDataException ex)
@@ -58,10 +64,8 @@ public sealed class LabelsController : ControllerBase
 
         try
         {
-            _glabelsXmlValidator.Validate(payload.Xml);
             var template = _glabels.ParseTemplateXml(payload.Xml);
-            var saeDoc = SaeLabelsConverter.FromGlabelsTemplate(template);
-            var xml = SaeLabelsSerializer.Serialize(saeDoc);
+            var xml = SaeLabelsTemplateXmlSerializer.Serialize(template);
             return Ok(xml);
         }
         catch (InvalidDataException ex)
@@ -81,9 +85,8 @@ public sealed class LabelsController : ControllerBase
         try
         {
             _saeXmlValidator.Validate(payload.Xml);
-            var saeDoc = SaeLabelsSerializer.Deserialize(payload.Xml);
-            var template = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
-            var xml = GlabelsTemplateXmlSerializer.Serialize(template);
+            var template = _glabels.ParseTemplateXml(payload.Xml);
+            var xml = SaeLabelsTemplateXmlSerializer.Serialize(template);
             return Ok(xml);
         }
         catch (InvalidDataException ex)
@@ -100,18 +103,16 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        SAELABEL.Core.SaeLabels.SaeLabelsDocument saeDoc;
+        SaeLabelsTemplate glabelTemplate;
         try
         {
             _saeXmlValidator.Validate(request.Xml);
-            saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+            glabelTemplate = _glabels.ParseTemplateXml(request.Xml);
         }
         catch (InvalidDataException ex)
         {
             return BadRequest(ex.Message);
         }
-
-        var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
 
         var format = string.IsNullOrWhiteSpace(request.Format) ? "png" : request.Format.ToLowerInvariant();
         if (format is not ("png" or "jpeg" or "jpg" or "bmp" or "gif" or "tiff"))
@@ -152,18 +153,16 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("XML vacío.");
         }
 
-        SAELABEL.Core.SaeLabels.SaeLabelsDocument saeDoc;
+        SaeLabelsTemplate glabelTemplate;
         try
         {
             _saeXmlValidator.Validate(request.Xml);
-            saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+            glabelTemplate = _glabels.ParseTemplateXml(request.Xml);
         }
         catch (InvalidDataException ex)
         {
             return BadRequest(ex.Message);
         }
-
-        var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
         var data = request.Data ?? new Dictionary<string, string>();
         var copies = request.Copies <= 0 ? 1 : request.Copies;
 
@@ -191,29 +190,59 @@ public sealed class LabelsController : ControllerBase
             return BadRequest("PrinterName es requerido.");
         }
 
-        SAELABEL.Core.SaeLabels.SaeLabelsDocument saeDoc;
+        if (request.Xml.Contains("<saetickets"))
+        {
+            try
+            {
+                _saeXmlValidator.Validate(request.Xml);
+                return await PrintTicketInternal(request);
+            }
+            catch (InvalidDataException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        SaeLabelsTemplate glabelTemplate;
         try
         {
             _saeXmlValidator.Validate(request.Xml);
-            saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
+            glabelTemplate = _glabels.ParseTemplateXml(request.Xml);
         }
         catch (InvalidDataException ex)
         {
             return BadRequest(ex.Message);
         }
-
-        var glabelTemplate = SaeLabelsConverter.ToGlabelsTemplate(saeDoc);
         var data = request.Data ?? new Dictionary<string, string>();
         var copies = request.Copies <= 0 ? 1 : request.Copies;
 
         try
         {
-            var ok = await _renderer.PrintToPrinterAsync(glabelTemplate, data, request.PrinterName, copies);
+            // Resolve logical printer if exists
+            var targetPrinter = request.PrinterName;
+            var logicalPrinter = _printerStore.GetById(request.PrinterName) ??
+                                 _printerStore.GetAll().FirstOrDefault(p => p.Name.Equals(request.PrinterName, StringComparison.OrdinalIgnoreCase));
+            
+            if (logicalPrinter != null && logicalPrinter.IsActive)
+            {
+                targetPrinter = logicalPrinter.PhysicalPrinter;
+            }
+
+            bool ok;
+            if (request.DataList != null && request.DataList.Count > 0)
+            {
+                ok = await _renderer.PrintMultipleItemsAsync(glabelTemplate, request.DataList, targetPrinter, copies);
+            }
+            else
+            {
+                ok = await _renderer.PrintToPrinterAsync(glabelTemplate, data, targetPrinter, copies);
+            }
+
             if (!ok)
             {
                 return StatusCode(StatusCodes.Status502BadGateway, "No se pudo completar la impresión.");
             }
-            return Ok(new { printed = true, printer = request.PrinterName, copies });
+            return Ok(new { printed = true, printer = targetPrinter, originalPrinter = request.PrinterName, copies });
         }
         catch (PlatformNotSupportedException ex)
         {
@@ -234,8 +263,8 @@ public sealed class LabelsController : ControllerBase
         {
             _saeXmlValidator.Validate(request.Xml);
             // Parse + serialize para validar y normalizar antes de exportar
-            var saeDoc = SaeLabelsSerializer.Deserialize(request.Xml);
-            normalized = SaeLabelsSerializer.Serialize(saeDoc);
+            var saeDoc = _glabels.ParseTemplateXml(request.Xml);
+            normalized = SaeLabelsTemplateXmlSerializer.Serialize(saeDoc);
         }
         catch (InvalidDataException ex)
         {
@@ -250,5 +279,138 @@ public sealed class LabelsController : ControllerBase
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(normalized);
         return File(bytes, "application/xml", fileName);
+    }
+    [HttpGet("library", Name = "GetLabelLibrary")]
+    public ActionResult<IEnumerable<EditorDocumentSummaryDto>> GetLibrary()
+    {
+        return Ok(_libraryStore.GetDocuments());
+    }
+
+    [HttpPost("library/{name}/print", Name = "PrintFromLibrary")]
+    public async Task<IActionResult> PrintByName(string name, [FromBody] PrintRequest request)
+    {
+        var doc = _libraryStore.GetDocumentByName(name);
+        if (doc == null) return NotFound($"Diseño '{name}' no encontrado.");
+
+        request.Xml = doc.Xml;
+
+        // Resolver impresora lógica → obtener configuración (copias, ancho papel)
+        LogicalPrinterDto? logicalPrinter = null;
+        if (!string.IsNullOrWhiteSpace(request.PrinterName))
+        {
+            logicalPrinter = _printerStore.GetById(request.PrinterName)
+                          ?? _printerStore.GetByName(request.PrinterName);
+
+            if (logicalPrinter != null)
+            {
+                // Usar impresora física real
+                request.PrinterName = logicalPrinter.IsActive
+                    ? logicalPrinter.PhysicalPrinter
+                    : request.PrinterName;
+
+                // Aplicar copias del printer si el request no las sobreescribe
+                if (request.Copies <= 1) request.Copies = logicalPrinter.Copies;
+            }
+        }
+
+        // Determinar tipo de documento
+        if (doc.Kind == "saetickets" || doc.Xml.Contains("<saetickets"))
+        {
+            int paperWidth = logicalPrinter?.PaperWidth ?? 0;
+            return await PrintTicketInternal(request, paperWidth);
+        }
+
+        return await Print(request);
+    }
+
+    private async Task<IActionResult> PrintTicketInternal(PrintRequest request, int paperWidth = 0)
+    {
+        try
+        {
+            var doc = System.Xml.Linq.XDocument.Parse(request.Xml);
+            var setup = doc.Root?.Element("setup");
+            var printersAttr = setup?.Attribute("printers")?.Value;
+            
+            var targetPrinters = new List<string>();
+            if (!string.IsNullOrWhiteSpace(printersAttr))
+            {
+                var names = printersAttr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var name in names)
+                {
+                    var resolved = ResolvePrinter(name);
+                    targetPrinters.Add(resolved);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(request.PrinterName))
+            {
+                targetPrinters.Add(ResolvePrinter(request.PrinterName));
+            }
+
+            if (targetPrinters.Count == 0)
+                return BadRequest("No se especificó ninguna impresora válida.");
+
+            bool allOk = true;
+            int totalSent = 0;
+
+            foreach (var targetPrinter in targetPrinters)
+            {
+                if (request.DataList is { Count: > 0 } list)
+                {
+                    var globalData = request.Data ?? new Dictionary<string, string>();
+                    foreach (var itemData in list)
+                    {
+                        // Merge global data into item data (item data wins on conflict)
+                        var mergedData = new Dictionary<string, string>(globalData);
+                        foreach (var kv in itemData) mergedData[kv.Key] = kv.Value;
+
+                        var bytes = _ticketService.ProcessTicketXml(request.Xml, mergedData, paperWidth);
+                        if (!await RawPrintHelper.SendBytesToPrinterAsync(targetPrinter, bytes, "SaeTicket"))
+                            allOk = false;
+                        totalSent++;
+                    }
+                }
+                else
+                {
+                    var data = request.Data ?? new Dictionary<string, string>();
+                    var bytes = _ticketService.ProcessTicketXml(request.Xml, data, paperWidth);
+                    if (!await RawPrintHelper.SendBytesToPrinterAsync(targetPrinter, bytes, "SaeTicket"))
+                        allOk = false;
+                    totalSent++;
+                }
+            }
+
+            if (!allOk) return StatusCode(StatusCodes.Status502BadGateway, "Una o más impresiones de tiquetes fallaron.");
+            return Ok(new { printed = true, type = "ticket", printers = targetPrinters, totalSent });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    private string ResolvePrinter(string printerName)
+    {
+        var logicalPrinter = _printerStore.GetById(printerName) ??
+                             _printerStore.GetAll().FirstOrDefault(p => p.Name.Equals(printerName, StringComparison.OrdinalIgnoreCase));
+
+        return (logicalPrinter != null && logicalPrinter.IsActive)
+            ? logicalPrinter.PhysicalPrinter
+            : printerName;
+    }
+}
+
+// Helper para impresión RAW (Comandos ESC/POS)
+internal static class RawPrintHelper
+{
+    public static Task<bool> SendBytesToPrinterAsync(string printerName, byte[] bytes, string docName)
+    {
+        try
+        {
+            return Task.FromResult(SAELABEL.Core.Labels.Helpers.RawPrinterHelper.SendBytesToPrinter(printerName, bytes, docName));
+        }
+        catch
+        {
+            return Task.FromResult(false);
+        }
     }
 }

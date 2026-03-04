@@ -50,3 +50,14 @@ public sealed class UpsertEditorDocumentRequest
     public string Xml { get; set; } = string.Empty;
 }
 
+public sealed class EditorSettingDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+}
+
+public sealed class UpdateEditorSettingRequest
+{
+    public string Key { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+}

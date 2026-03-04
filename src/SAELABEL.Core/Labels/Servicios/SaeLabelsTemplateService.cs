@@ -9,18 +9,18 @@ using System.IO;
 
 namespace SAELABEL.Core.Labels.Servicios
 {
-    public class GlabelsTemplateService
+    public class SaeLabelsTemplateService
     {
         private readonly TemplateCache _cache;
         private readonly ILogger _logger;
 
-        public GlabelsTemplateService(ILogger<GlabelsTemplateService> logger, TemplateCache cache)
+        public SaeLabelsTemplateService(ILogger<SaeLabelsTemplateService> logger, TemplateCache cache)
         {
             _logger = logger;
             _cache = cache;
         }
 
-        public GlabelsTemplate LoadTemplate(string xmlFilePath)
+        public SaeLabelsTemplate LoadTemplate(string xmlFilePath)
         {
             // Verificar cache primero
             if (_cache.TryGetTemplate(xmlFilePath, out var cachedTemplate))
@@ -37,7 +37,7 @@ namespace SAELABEL.Core.Labels.Servicios
             return template;
         }
 
-        public GlabelsTemplate ParseTemplateXml(string xmlContent, string sourceName = "")
+        public SaeLabelsTemplate ParseTemplateXml(string xmlContent, string sourceName = "")
         {
             if (string.IsNullOrWhiteSpace(xmlContent))
             {
@@ -48,9 +48,9 @@ namespace SAELABEL.Core.Labels.Servicios
             return ParseDocument(doc, sourceName);
         }
 
-        private GlabelsTemplate ParseDocument(XDocument doc, string sourceName)
+        private SaeLabelsTemplate ParseDocument(XDocument doc, string sourceName)
         {
-            var template = new GlabelsTemplate
+            var template = new SaeLabelsTemplate
             {
                 FilePath = sourceName,
                 LastModified = string.IsNullOrWhiteSpace(sourceName) || !File.Exists(sourceName)
@@ -60,7 +60,9 @@ namespace SAELABEL.Core.Labels.Servicios
 
             // Parsear elemento Template
             var root = doc.Root ?? throw new InvalidDataException("XML sin nodo raíz.");
-            var templateElement = root.Name.LocalName == "Template" ? root : root.Element("Template");
+            var templateElement = root.Name.LocalName.Equals("Template", StringComparison.OrdinalIgnoreCase) 
+                ? root 
+                : (root.Element("Template") ?? root.Element("template"));
             if (templateElement is null)
             {
                 throw new InvalidDataException("No se encontró el nodo Template en el XML.");
@@ -78,35 +80,35 @@ namespace SAELABEL.Core.Labels.Servicios
             }
 
             // Parsear Label-rectangle
-            var rectElement = templateElement.Element("Label-rectangle")
+            var rectElement = templateElement.Element("Label-rectangle") ?? templateElement.Element("label_rectangle")
                 ?? throw new InvalidDataException("No se encontró Label-rectangle en la plantilla.");
             template.LabelRectangle = new LabelRectangle
             {
-                Width = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("width") ?? "0pt"),
-                Height = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("height") ?? "0pt"),
-                Round = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("round") ?? "0pt"),
-                XWaste = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("x_waste") ?? "0pt"),
-                YWaste = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("y_waste") ?? "0pt")
+                Width = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("width_pt") ?? (string?)rectElement.Attribute("width") ?? "0pt"),
+                Height = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("height_pt") ?? (string?)rectElement.Attribute("height") ?? "0pt"),
+                Round = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("round_pt") ?? (string?)rectElement.Attribute("round") ?? "0pt"),
+                XWaste = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("x_waste_pt") ?? (string?)rectElement.Attribute("x_waste") ?? "0pt"),
+                YWaste = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("y_waste_pt") ?? (string?)rectElement.Attribute("y_waste") ?? "0pt")
             };
 
             // Parsear Layout
-            var layoutElement = rectElement.Element("Layout");
+            var layoutElement = rectElement.Element("Layout") ?? rectElement.Element("layout");
             template.LabelRectangle.Layout = new Layout
             {
-                Dx = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("dx") ?? "0pt"),
-                Dy = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("dy") ?? "0pt"),
+                Dx = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("dx_pt") ?? (string?)layoutElement?.Attribute("dx") ?? "0pt"),
+                Dy = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("dy_pt") ?? (string?)layoutElement?.Attribute("dy") ?? "0pt"),
                 Nx = (int?)layoutElement?.Attribute("nx") ?? 1,
                 Ny = (int?)layoutElement?.Attribute("ny") ?? 1,
-                X0 = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("x0") ?? "0pt"),
-                Y0 = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("y0") ?? "0pt")
+                X0 = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("x0_pt") ?? (string?)layoutElement?.Attribute("x0") ?? "0pt"),
+                Y0 = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("y0_pt") ?? (string?)layoutElement?.Attribute("y0") ?? "0pt")
             };
 
             // Parsear Objects
-            var objectsElement = root.Element("Objects");
+            var objectsElement = root.Element("Objects") ?? root.Element("objects");
             template.Objects = ParseObjects(objectsElement);
 
             // Parsear Variables
-            var variablesElement = root.Element("Variables");
+            var variablesElement = root.Element("Variables") ?? root.Element("variables");
             if (variablesElement != null)
             {
                 template.Variables = ParseVariables(variablesElement);
@@ -142,7 +144,17 @@ namespace SAELABEL.Core.Labels.Servicios
         {
             var commonProps = ParseCommonProperties(element);
 
-            return element.Name.LocalName switch
+            var objectType = element.Name.LocalName;
+            if (objectType.Equals("object", StringComparison.OrdinalIgnoreCase))
+            {
+                var typeAttr = element.Attribute("type")?.Value;
+                if (!string.IsNullOrEmpty(typeAttr))
+                {
+                    objectType = "Object-" + typeAttr;
+                }
+            }
+
+            return objectType switch
             {
                 "Object-text" => ParseTextObject(element, commonProps),
                 "Object-barcode" => ParseBarcodeObject(element, commonProps),
@@ -150,21 +162,25 @@ namespace SAELABEL.Core.Labels.Servicios
                 "Object-line" => ParseLineObject(element, commonProps),
                 "Object-ellipse" => ParseEllipseObject(element, commonProps),
                 "Object-image" => ParseImageObject(element, commonProps),
+                "Object-path" => ParsePathObject(element, commonProps),
                 _ => null!
             };
         }
 
         private CommonObjectProperties ParseCommonProperties(XElement element)
         {
+            var rotation = (double?)element.Attribute("rot_deg") ?? 0;
+            
             return new CommonObjectProperties
             {
-                X = UnitConverter.ParseMeasurement((string?)element.Attribute("x") ?? "0pt"),
-                Y = UnitConverter.ParseMeasurement((string?)element.Attribute("y") ?? "0pt"),
-                Width = UnitConverter.ParseMeasurement((string?)element.Attribute("w") ?? "0pt"),
-                Height = UnitConverter.ParseMeasurement((string?)element.Attribute("h") ?? "0pt"),
+                X = UnitConverter.ParseMeasurement((string?)element.Attribute("x_pt") ?? (string?)element.Attribute("x") ?? "0pt"),
+                Y = UnitConverter.ParseMeasurement((string?)element.Attribute("y_pt") ?? (string?)element.Attribute("y") ?? "0pt"),
+                Width = UnitConverter.ParseMeasurement((string?)element.Attribute("w_pt") ?? (string?)element.Attribute("w") ?? "0pt"),
+                Height = UnitConverter.ParseMeasurement((string?)element.Attribute("h_pt") ?? (string?)element.Attribute("h") ?? "0pt"),
                 LockAspectRatio = (bool?)element.Attribute("lock_aspect_ratio") ?? false,
                 Matrix = ParseMatrix(element),
-                Shadow = ParseShadow(element)
+                Shadow = ParseShadow(element),
+                Rotation = rotation
             };
         }
 
@@ -203,7 +219,7 @@ namespace SAELABEL.Core.Labels.Servicios
             var textObj = new TextObject();
             ApplyCommonProperties(textObj, common);
 
-            textObj.Content = element.Element("p")?.Value ?? element.Value ?? string.Empty;
+            textObj.Content = element.Element("p")?.Value ?? element.Element("content")?.Value ?? element.Value ?? string.Empty;
             textObj.FontFamily = (string)element.Attribute("font_family") ?? "Sans";
             textObj.FontSize = (double?)element.Attribute("font_size") ?? 10;
             textObj.Color = (string)element.Attribute("color") ?? "000000FF"; // Negro por defecto
@@ -224,9 +240,9 @@ namespace SAELABEL.Core.Labels.Servicios
             var barcodeObj = new BarcodeObject();
             ApplyCommonProperties(barcodeObj, common);
 
-            barcodeObj.Data = (string)element.Attribute("data");
+            barcodeObj.Data = (string)element.Attribute("data") ?? element.Element("content")?.Value ?? string.Empty;
             barcodeObj.BarcodeType = (string)element.Attribute("style") ?? "code39";
-            barcodeObj.ShowText = (bool?)element.Attribute("text") ?? true;
+            barcodeObj.ShowText = (bool?)element.Attribute("show_text") ?? (bool?)element.Attribute("text") ?? true;
             barcodeObj.Checksum = (bool?)element.Attribute("checksum") ?? true;
             barcodeObj.Color = (string)element.Attribute("color") ?? "000000FF"; // Negro por defecto
             barcodeObj.Backend = (string)element.Attribute("backend");
@@ -239,7 +255,7 @@ namespace SAELABEL.Core.Labels.Servicios
             var boxObj = new BoxObject();
             ApplyCommonProperties(boxObj, common);
 
-            boxObj.FillColor = (string)element.Attribute("fill_color") ?? "FFFFFFFF"; // Blanco por defecto
+            boxObj.FillColor = (string?)element.Attribute("fill_color") ?? (string?)element.Attribute("color") ?? "FFFFFFFF"; // Blanco por defecto
             boxObj.LineColor = (string)element.Attribute("line_color") ?? "000000FF"; // Negro por defecto
             boxObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
 
@@ -251,8 +267,8 @@ namespace SAELABEL.Core.Labels.Servicios
             var lineObj = new LineObject();
             ApplyCommonProperties(lineObj, common);
 
-            lineObj.Dx = UnitConverter.ParseMeasurement((string)element.Attribute("dx"));
-            lineObj.Dy = UnitConverter.ParseMeasurement((string)element.Attribute("dy"));
+            lineObj.Dx = UnitConverter.ParseMeasurement((string?)element.Attribute("dx_pt") ?? (string?)element.Attribute("dx") ?? "0pt");
+            lineObj.Dy = UnitConverter.ParseMeasurement((string?)element.Attribute("dy_pt") ?? (string?)element.Attribute("dy") ?? "0pt");
             lineObj.LineColor = (string)element.Attribute("line_color") ?? "000000FF"; // Negro por defecto
             lineObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
 
@@ -264,7 +280,7 @@ namespace SAELABEL.Core.Labels.Servicios
             var ellipseObj = new EllipseObject();
             ApplyCommonProperties(ellipseObj, common);
 
-            ellipseObj.FillColor = (string)element.Attribute("fill_color") ?? "FFFFFFFF"; // Blanco por defecto
+            ellipseObj.FillColor = (string?)element.Attribute("fill_color") ?? (string?)element.Attribute("color") ?? "FFFFFFFF"; // Blanco por defecto
             ellipseObj.LineColor = (string)element.Attribute("line_color") ?? "000000FF"; // Negro por defecto
             ellipseObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
 
@@ -282,6 +298,19 @@ namespace SAELABEL.Core.Labels.Servicios
             return imageObj;
         }
 
+        private PathObject ParsePathObject(XElement element, CommonObjectProperties common)
+        {
+            var pathObj = new PathObject();
+            ApplyCommonProperties(pathObj, common);
+
+            pathObj.Data = (string)element.Attribute("data") ?? element.Element("content")?.Value ?? string.Empty;
+            pathObj.FillColor = (string?)element.Attribute("fill_color") ?? (string?)element.Attribute("color") ?? "none";
+            pathObj.LineColor = (string)element.Attribute("line_color") ?? "#000000";
+            pathObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
+
+            return pathObj;
+        }
+
         private List<TemplateVariable> ParseVariables(XElement variablesElement)
         {
             var variables = new List<TemplateVariable>();
@@ -289,7 +318,7 @@ namespace SAELABEL.Core.Labels.Servicios
             if (variablesElement == null)
                 return variables;
 
-            foreach (var varElement in variablesElement.Elements("Variable"))
+            foreach (var varElement in variablesElement.Elements("Variable").Concat(variablesElement.Elements("variable")))
             {
                 try
                 {
@@ -301,7 +330,7 @@ namespace SAELABEL.Core.Labels.Servicios
                     }
 
                     // Parsear StepSize
-                    var stepSizeValue = varElement.Attribute("stepSize")?.Value;
+                    var stepSizeValue = varElement.Attribute("step")?.Value ?? varElement.Attribute("stepSize")?.Value;
                     double stepSize = 0;
                     if (!string.IsNullOrEmpty(stepSizeValue))
                     {
@@ -316,7 +345,7 @@ namespace SAELABEL.Core.Labels.Servicios
                     incrementValue = NormalizeIncrementValue(incrementValue);
 
                     // Parsear valor inicial
-                    var initialValue = varElement.Attribute("initialValue")?.Value ?? "0";
+                    var initialValue = varElement.Attribute("initial")?.Value ?? varElement.Attribute("initialValue")?.Value ?? "0";
                     double currentValue = 0;
                     if (double.TryParse(initialValue, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed))
                     {
@@ -411,6 +440,7 @@ namespace SAELABEL.Core.Labels.Servicios
             obj.LockAspectRatio = common.LockAspectRatio;
             obj.Matrix = common.Matrix;
             obj.Shadow = common.Shadow;
+            obj.RotationAngle = (float)common.Rotation;
         }
     }
 
@@ -423,6 +453,7 @@ namespace SAELABEL.Core.Labels.Servicios
         public bool LockAspectRatio { get; set; }
         public TransformationMatrix Matrix { get; set; } = new();
         public ShadowEffect? Shadow { get; set; }
+        public double Rotation { get; set; }
     }
 }
 #pragma warning restore CS8600, CS8601, CS8602, CS8603, CS8604

@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema id="saetickets"
+    elementFormDefault="unqualified"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <xs:attributeGroup name="CommonAttributes">
+    <xs:attribute name="showIf" type="xs:string" use="optional" />
+  </xs:attributeGroup>
+
+  <xs:simpleType name="Alignment">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="left" />
+      <xs:enumeration value="center" />
+      <xs:enumeration value="right" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="FontSize">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="normal" />
+      <xs:enumeration value="medium" />
+      <xs:enumeration value="large" />
+      <xs:enumeration value="extra-large" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="TextCommand">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="align" type="Alignment" default="left" />
+        <xs:attribute name="bold" type="xs:boolean" default="false" />
+        <xs:attribute name="size" type="FontSize" default="normal" />
+        <xs:attributeGroup ref="CommonAttributes" />
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:complexType name="SeparatorCommand">
+    <xs:attribute name="char" type="xs:string" default="-" />
+    <xs:attributeGroup ref="CommonAttributes" />
+  </xs:complexType>
+
+  <xs:complexType name="ItemCommand">
+    <xs:attribute name="description" type="xs:string" use="required" />
+    <xs:attribute name="quantity" type="xs:string" use="required" />
+    <xs:attribute name="price" type="xs:string" />
+    <xs:attribute name="total" type="xs:string" />
+    <xs:attributeGroup ref="CommonAttributes" />
+  </xs:complexType>
+
+  <xs:complexType name="TotalCommand">
+    <xs:attribute name="label" type="xs:string" use="required" />
+    <xs:attribute name="value" type="xs:string" use="required" />
+    <xs:attribute name="bold" type="xs:boolean" default="false" />
+    <xs:attributeGroup ref="CommonAttributes" />
+  </xs:complexType>
+
+  <xs:complexType name="QrCommand">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="align" type="Alignment" default="center" />
+        <xs:attribute name="size" type="xs:int" default="80" />
+        <xs:attributeGroup ref="CommonAttributes" />
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:complexType name="FeedCommand">
+    <xs:attribute name="lines" type="xs:int" default="1" />
+    <xs:attributeGroup ref="CommonAttributes" />
+  </xs:complexType>
+
+  <xs:complexType name="IfCommand">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="expr" type="xs:string" use="required" />
+        <xs:attribute name="align" type="Alignment" default="left" />
+        <xs:attribute name="bold" type="xs:boolean" default="false" />
+        <xs:attributeGroup ref="CommonAttributes" />
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:complexType name="IfElseCommand">
+    <xs:sequence>
+      <xs:element name="then" type="xs:string" />
+      <xs:element name="else" type="xs:string" />
+    </xs:sequence>
+    <xs:attribute name="expr" type="xs:string" use="required" />
+    <xs:attribute name="align" type="Alignment" default="left" />
+    <xs:attributeGroup ref="CommonAttributes" />
+  </xs:complexType>
+
+  <xs:complexType name="EachCommand">
+    <xs:sequence>
+      <xs:element name="column" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="field" type="xs:string" use="required" />
+          <xs:attribute name="label" type="xs:string" use="optional" />
+          <xs:attribute name="width" type="xs:string" default="auto" />
+          <xs:attribute name="align" type="Alignment" default="left" />
+          <xs:attribute name="bold" type="xs:boolean" default="false" />
+          <xs:attribute name="size" type="FontSize" default="normal" />
+          <xs:attributeGroup ref="CommonAttributes" />
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="listVar" type="xs:string" default="ITEMS" />
+    <xs:attribute name="header" type="xs:boolean" default="true" />
+    <xs:attribute name="childField" type="xs:string" use="optional" />
+    <xs:attribute name="childIndentCol" type="xs:int" default="0" />
+    <xs:attributeGroup ref="CommonAttributes" />
+  </xs:complexType>
+
+  <xs:element name="saetickets">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="setup" minOccurs="0" maxOccurs="1">
+          <xs:complexType>
+            <xs:attribute name="width" type="xs:int" default="42" />
+            <xs:attribute name="printers" type="xs:string" />
+            <xs:attribute name="encoding" type="xs:string" default="UTF-8" />
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="commands">
+          <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+              <xs:element name="text" type="TextCommand" />
+              <xs:element name="separator" type="SeparatorCommand" />
+              <xs:element name="item" type="ItemCommand" />
+              <xs:element name="total" type="TotalCommand" />
+              <xs:element name="qr" type="QrCommand" />
+              <xs:element name="feed" type="FeedCommand" />
+              <xs:element name="cut" type="xs:anyType" />
+              <xs:element name="beep" type="xs:anyType" />
+              <xs:element name="open-drawer" type="xs:anyType" />
+              <xs:element name="if" type="IfCommand" />
+              <xs:element name="ifelse" type="IfElseCommand" />
+              <xs:element name="each" type="EachCommand" />
+            </xs:choice>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:string" fixed="1.0" />
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

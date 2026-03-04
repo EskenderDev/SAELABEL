@@ -170,6 +170,36 @@ public sealed class EditorLibraryStore : IEditorLibraryStore
         }
     }
 
+    public EditorDocumentDto? GetDocumentByName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        lock (_sync)
+        {
+            using var cn = Open();
+            using var cmd = cn.CreateCommand();
+            cmd.CommandText = """
+                SELECT id, name, kind, xml, created_at_utc, updated_at_utc
+                FROM editor_documents
+                WHERE name = $name
+                ORDER BY updated_at_utc DESC
+                LIMIT 1;
+                """;
+            cmd.Parameters.AddWithValue("$name", name.Trim());
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) return null;
+            return new EditorDocumentDto
+            {
+                Id = r.GetString(0),
+                Name = r.GetString(1),
+                Kind = r.GetString(2),
+                Xml = r.GetString(3),
+                CreatedAtUtc = DateTime.Parse(r.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                UpdatedAtUtc = DateTime.Parse(r.GetString(5), null, System.Globalization.DateTimeStyles.RoundtripKind)
+            };
+        }
+    }
+
+
     public EditorDocumentDto UpsertDocument(UpsertEditorDocumentRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name)) throw new InvalidDataException("Name es requerido.");
@@ -234,6 +264,38 @@ public sealed class EditorLibraryStore : IEditorLibraryStore
         }
     }
 
+    public string? GetSetting(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return null;
+        lock (_sync)
+        {
+            using var cn = Open();
+            using var cmd = cn.CreateCommand();
+            cmd.CommandText = "SELECT value FROM editor_settings WHERE key = $key;";
+            cmd.Parameters.AddWithValue("$key", key.Trim().ToLowerInvariant());
+            var val = cmd.ExecuteScalar();
+            return val?.ToString();
+        }
+    }
+
+    public void SaveSetting(string key, string value)
+    {
+        if (string.IsNullOrWhiteSpace(key)) throw new InvalidDataException("Key es requerido.");
+        lock (_sync)
+        {
+            using var cn = Open();
+            using var cmd = cn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO editor_settings (key, value)
+                VALUES ($key, $value)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+                """;
+            cmd.Parameters.AddWithValue("$key", key.Trim().ToLowerInvariant());
+            cmd.Parameters.AddWithValue("$value", value ?? string.Empty);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     private SqliteConnection Open()
     {
         var cn = new SqliteConnection(_connectionString);
@@ -266,6 +328,11 @@ public sealed class EditorLibraryStore : IEditorLibraryStore
                     xml TEXT NOT NULL,
                     created_at_utc TEXT NOT NULL,
                     updated_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS editor_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
                 );
                 """;
             cmd.ExecuteNonQuery();
@@ -314,7 +381,7 @@ public sealed class EditorLibraryStore : IEditorLibraryStore
         var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
         return normalized switch
         {
-            "sae" or "glabels" => normalized,
+            "sae" or "glabels" or "saetickets" => normalized,
             _ => "sae"
         };
     }

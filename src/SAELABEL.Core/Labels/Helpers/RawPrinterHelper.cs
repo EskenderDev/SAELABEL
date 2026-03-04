@@ -37,6 +37,20 @@ namespace SAELABEL.Core.Labels.Helpers
         [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
         private static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
 
+        public static bool SendBytesToPrinter(string printerName, byte[] bytes, string docName = "")
+        {
+            IntPtr pBytes = Marshal.AllocCoTaskMem(bytes.Length);
+            Marshal.Copy(bytes, 0, pBytes, bytes.Length);
+            try
+            {
+                return SendBytesToPrinter(printerName, pBytes, bytes.Length, docName);
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(pBytes);
+            }
+        }
+
         public static bool SendBytesToPrinter(string printerName, IntPtr pBytes, int count, string docName = "")
         {
             if (OpenPrinter(printerName, out IntPtr hPrinter, IntPtr.Zero))

@@ -9,14 +9,25 @@ public sealed class SaeLabelsXmlValidator : ISaeLabelsXmlValidator
 
     public SaeLabelsXmlValidator(IWebHostEnvironment env)
     {
-        var schemaPath = Path.Combine(env.ContentRootPath, "Schemas", "saelabels.xsd");
-        if (!File.Exists(schemaPath))
+        _schemas = new XmlSchemaSet();
+
+        var labelsPath = Path.Combine(env.ContentRootPath, "Schemas", "saelabels.xsd");
+        if (File.Exists(labelsPath))
         {
-            throw new FileNotFoundException($"No se encontró esquema XSD: {schemaPath}");
+            // El primer parámetro null indica que use el targetNamespace del XSD
+            _schemas.Add(null, labelsPath);
         }
 
-        _schemas = new XmlSchemaSet();
-        _schemas.Add(null, schemaPath);
+        var ticketsPath = Path.Combine(env.ContentRootPath, "Schemas", "saetickets.xsd");
+        if (File.Exists(ticketsPath))
+        {
+            _schemas.Add(null, ticketsPath);
+        }
+
+        if (_schemas.Count == 0)
+        {
+            throw new FileNotFoundException("No se encontraron esquemas XSD en la carpeta Schemas.");
+        }
     }
 
     public void Validate(string xml)

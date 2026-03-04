@@ -6,11 +6,11 @@ namespace SAELABEL.Core.Labels.Caching
 {
     public class TemplateCache
     {
-        private readonly ConcurrentDictionary<string, (GlabelsTemplate Template, DateTime LoadTime)> _cache
-            = new ConcurrentDictionary<string, (GlabelsTemplate, DateTime)>();
+        private readonly ConcurrentDictionary<string, (SaeLabelsTemplate Template, DateTime LoadTime)> _cache
+            = new ConcurrentDictionary<string, (SaeLabelsTemplate, DateTime)>();
         private readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(30);
 
-        public bool TryGetTemplate(string filePath, out GlabelsTemplate? template)
+        public bool TryGetTemplate(string filePath, out SaeLabelsTemplate? template)
         {
             template = null;
 
@@ -32,7 +32,7 @@ namespace SAELABEL.Core.Labels.Caching
             return false;
         }
 
-        public void AddTemplate(string filePath, GlabelsTemplate template)
+        public void AddTemplate(string filePath, SaeLabelsTemplate template)
         {
             _cache[filePath] = (template, DateTime.Now);
         }

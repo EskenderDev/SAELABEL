@@ -170,10 +170,11 @@ else
 {
     builder.Services.AddScoped<ILabelRenderer, UnsupportedLabelRenderer>();
 }
-builder.Services.AddScoped<GlabelsTemplateService>();
+builder.Services.AddScoped<SaeLabelsTemplateService>();
+builder.Services.AddScoped<SaeTicketsTemplateService>();
 builder.Services.AddSingleton<ISaeLabelsXmlValidator, SaeLabelsXmlValidator>();
-builder.Services.AddSingleton<IGlabelsXmlValidator, GlabelsXmlValidator>();
 builder.Services.AddSingleton<IEditorLibraryStore, EditorLibraryStore>();
+builder.Services.AddSingleton<ILogicalPrinterStore, LogicalPrinterStore>();
 
 var app = builder.Build();
 
@@ -186,8 +187,10 @@ app.MapScalarApiReference("/scalar", options =>
         .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
 });
 
-app.UseHttpsRedirection();
+// CORS must come BEFORE UseHttpsRedirection — the redirect 301 doesn't carry CORS headers
+// and the browser blocks the preflight before our policy ever runs.
 app.UseCors("FrontendClients");
+app.UseHttpsRedirection();
 app.MapControllers();
 app.Run();
 
@@ -196,21 +199,24 @@ internal sealed class UnsupportedLabelRenderer : ILabelRenderer
     private static Exception NotSupported() =>
         new PlatformNotSupportedException("ILabelRenderer requiere Windows por dependencias System.Drawing.");
 
-    public string GenerateZpl(SAELABEL.Core.Labels.Modelos.GlabelsTemplate template, Dictionary<string, string> data)
+    public string GenerateZpl(SAELABEL.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data)
         => throw NotSupported();
 
-    public Task<string> GenerateZplWithCopiesAsync(SAELABEL.Core.Labels.Modelos.GlabelsTemplate template, Dictionary<string, string> data, int copies = 1)
+    public Task<string> GenerateZplWithCopiesAsync(SAELABEL.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, int copies = 1)
         => throw NotSupported();
 
-    public Task<bool> PrintToPrinterAsync(SAELABEL.Core.Labels.Modelos.GlabelsTemplate template, Dictionary<string, string> data, string printerName, int copies = 1)
+    public Task<bool> PrintToPrinterAsync(SAELABEL.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies = 1)
         => throw NotSupported();
 
-    public Task<bool> PrintMultipleItemsAsync(SAELABEL.Core.Labels.Modelos.GlabelsTemplate template, IEnumerable<Dictionary<string, string>> itemsData, string printerName, int copiesPerItem = 1)
+    public Task<bool> PrintMultipleItemsAsync(SAELABEL.Core.Labels.Modelos.SaeLabelsTemplate template, IEnumerable<Dictionary<string, string>> itemsData, string printerName, int copiesPerItem = 1)
         => throw NotSupported();
 
-    public Task<byte[]> RenderToImageAsync(SAELABEL.Core.Labels.Modelos.GlabelsTemplate template, Dictionary<string, string> data, string format = "png")
+    public Task<byte[]> RenderToImageAsync(SAELABEL.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, string format = "png")
         => throw NotSupported();
 
-    public System.Drawing.Bitmap RenderToBitmap(SAELABEL.Core.Labels.Modelos.GlabelsTemplate template, Dictionary<string, string> data, SAELABEL.Core.Labels.Servicios.RenderSettings? settings = null)
+    public System.Drawing.Bitmap RenderToBitmap(SAELABEL.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, SAELABEL.Core.Labels.Servicios.RenderSettings? settings = null)
+        => throw NotSupported();
+        
+    public IEnumerable<string> GetInstalledPrinters()
         => throw NotSupported();
 }

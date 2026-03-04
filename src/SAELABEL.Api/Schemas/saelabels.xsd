@@ -52,6 +52,16 @@
                   <xs:attribute name="dy_pt" type="xs:decimal" use="optional" />
                   <xs:attribute name="show_text" type="xs:boolean" use="optional" />
                   <xs:attribute name="checksum" type="xs:boolean" use="optional" />
+                  <xs:attribute name="text_pos" type="xs:string" use="optional" />
+                  <xs:attribute name="rot_deg" type="xs:decimal" use="optional" />
+                  <xs:attribute name="scale_x" type="xs:decimal" use="optional" />
+                  <xs:attribute name="scale_y" type="xs:decimal" use="optional" />
+                  <xs:attribute name="skew_x" type="xs:decimal" use="optional" />
+                  <xs:attribute name="skew_y" type="xs:decimal" use="optional" />
+                  <xs:attribute name="fill_color" type="xs:string" use="optional" />
+                  <xs:attribute name="line_color" type="xs:string" use="optional" />
+                  <xs:attribute name="line_width" type="xs:decimal" use="optional" />
+                  <xs:attribute name="group_id" type="xs:string" use="optional" />
                 </xs:complexType>
               </xs:element>
             </xs:sequence>

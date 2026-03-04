@@ -28,12 +28,12 @@ namespace SAELABEL.Core.Labels.Servicios
 
         #region Implementación ILabelRenderer
 
-        public string GenerateZpl(GlabelsTemplate template, Dictionary<string, string> data)
+        public string GenerateZpl(SaeLabelsTemplate template, Dictionary<string, string> data)
         {
             return _optimizer.GenerateZPL(template, data);
         }
 
-        public async Task<string> GenerateZplWithCopiesAsync(GlabelsTemplate template, Dictionary<string, string> data, int copies = 1)
+        public async Task<string> GenerateZplWithCopiesAsync(SaeLabelsTemplate template, Dictionary<string, string> data, int copies = 1)
         {
             return await Task.Run(() =>
             {
@@ -46,7 +46,7 @@ namespace SAELABEL.Core.Labels.Servicios
                 for (int i = 1; i <= copies; i++)
                 {
                     // Procesar variables para esta copia
-                    var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(template, dataCopy, i);
+                    var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(template, dataCopy, currentCopy: i, currentItem: i, currentPage: i);
 
                     // Generar ZPL para esta etiqueta
                     sb.Append(_optimizer.GenerateZPL(template, processedData));
@@ -59,7 +59,7 @@ namespace SAELABEL.Core.Labels.Servicios
             });
         }
 
-        public async Task<bool> PrintToPrinterAsync(GlabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
+        public async Task<bool> PrintToPrinterAsync(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
         {
             try
             {
@@ -90,35 +90,37 @@ namespace SAELABEL.Core.Labels.Servicios
         }
 
         public async Task<bool> PrintMultipleItemsAsync(
-            GlabelsTemplate template,
+            SaeLabelsTemplate template,
             IEnumerable<Dictionary<string, string>> itemsData,
             string printerName,
             int copiesPerItem = 1)
         {
             try
             {
-                // Inicializar variables una sola vez para el lote
-                IncrementalVariableHelper.InitializeIncrementalVariables(template);
-
-                int itemsProcessed = 0;
-
-                foreach (var itemData in itemsData)
+                if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                 {
-                    itemsProcessed++;
-
-                    // Procesar variables para este ítem
-                    // Nota: Pasamos copiesPerItem para que procese correctamente si hay variables 'per_copy'
-                    // Pero para 'per_item' usamos el índice del ítem actual
-                    var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(
-                        template,
-                        itemData,
-                        1, // Empezamos en copia 1 para este ítem
-                        itemsProcessed);
-
-                    await PrintToPrinterAsync(template, processedData, printerName, copiesPerItem);
+                    return PrintBatchWithWindowsNative(template, itemsData, printerName, copiesPerItem);
                 }
+                else
+                {
+                    // Fallback para Unix: imprimir uno por uno
+                    int itemsProcessed = 0;
+                    IncrementalVariableHelper.InitializeIncrementalVariables(template);
 
-                return true;
+                    foreach (var itemData in itemsData)
+                    {
+                        itemsProcessed++;
+                        var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(
+                            template,
+                            itemData,
+                            1, 
+                            itemsProcessed,
+                            itemsProcessed); // Propagar itemsProcessed como currentPage también para el fallback
+
+                        await PrintToPrinterAsync(template, processedData, printerName, copiesPerItem);
+                    }
+                    return true;
+                }
             }
             catch (Exception ex)
             {
@@ -127,7 +129,7 @@ namespace SAELABEL.Core.Labels.Servicios
             }
         }
 
-        public async Task<byte[]> RenderToImageAsync(GlabelsTemplate template, Dictionary<string, string> data, string format = "png")
+        public async Task<byte[]> RenderToImageAsync(SaeLabelsTemplate template, Dictionary<string, string> data, string format = "png")
         {
             // Validar formato
             ValidateImageFormat(format);
@@ -136,11 +138,28 @@ namespace SAELABEL.Core.Labels.Servicios
             return await ConvertBitmapToImageAsync(bitmap, format);
         }
 
+        public IEnumerable<string> GetInstalledPrinters()
+        {
+            var printers = new List<string>();
+            try
+            {
+                foreach (string printer in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    printers.Add(printer);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error obteniendo impresoras instaladas");
+            }
+            return printers;
+        }
+
         #endregion
 
         #region Renderizado GDI+ (Bitmap)
 
-        public Bitmap RenderToBitmap(GlabelsTemplate template, Dictionary<string, string> data, RenderSettings? settings = null)
+        public Bitmap RenderToBitmap(SaeLabelsTemplate template, Dictionary<string, string> data, RenderSettings? settings = null)
         {
             settings ??= new RenderSettings();
             data ??= new Dictionary<string, string>();
@@ -157,6 +176,7 @@ namespace SAELABEL.Core.Labels.Servicios
             height = Math.Max(height, settings.MinimumHeight);
 
             var bitmap = new Bitmap(width, height);
+            bitmap.SetResolution(settings.DPI, settings.DPI);
             using var g = Graphics.FromImage(bitmap);
 
             // Configurar calidad
@@ -195,27 +215,30 @@ namespace SAELABEL.Core.Labels.Servicios
 
             try
             {
-                ApplyTransformations(g, obj, x, y);
+                ApplyTransformations(g, obj, x, y, scale);
 
                 switch (obj)
                 {
                     case TextObject textObj:
-                        RenderText(g, textObj, data, x, y, w, h, scale);
+                        RenderText(g, textObj, data, 0, 0, w, h, scale);
                         break;
                     case BarcodeObject barcodeObj:
-                        RenderBarcode(g, barcodeObj, data, x, y, w, h);
+                        RenderBarcode(g, barcodeObj, data, 0, 0, w, h);
                         break;
                     case BoxObject boxObj:
-                        RenderBox(g, boxObj, x, y, w, h);
+                        RenderBox(g, boxObj, 0, 0, w, h, scale);
                         break;
                     case LineObject lineObj:
-                        RenderLine(g, lineObj, x, y);
+                        RenderLine(g, lineObj, 0, 0, scale);
                         break;
                     case EllipseObject ellipseObj:
-                        RenderEllipse(g, ellipseObj, x, y, w, h);
+                        RenderEllipse(g, ellipseObj, 0, 0, w, h, scale);
                         break;
                     case ImageObject imgObj:
-                        RenderImage(g, imgObj, x, y, w, h);
+                        RenderImage(g, imgObj, 0, 0, w, h);
+                        break;
+                    case PathObject pathObj:
+                        RenderPath(g, pathObj, 0, 0, w, h, scale);
                         break;
                 }
             }
@@ -234,8 +257,8 @@ namespace SAELABEL.Core.Labels.Servicios
 
             // Configurar fuente
             using var font = CreateFont(textObj);
-            // Escalar fuente según DPI
-            using var scaledFont = new Font(font.FontFamily, font.Size * scale, font.Style);
+            // Escalar fuente según DPI - Usar GraphicsUnit.Pixel para que el tamaño sea en píxeles
+            using var scaledFont = new Font(font.FontFamily, font.Size * scale, font.Style, GraphicsUnit.Pixel);
 
             var format = CreateStringFormat(textObj);
 
@@ -277,7 +300,7 @@ namespace SAELABEL.Core.Labels.Servicios
 
         #region Impresión Nativa (Windows)
 
-        private bool PrintWithWindowsNative(GlabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
+        private bool PrintWithWindowsNative(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
         {
             try
             {
@@ -288,49 +311,57 @@ namespace SAELABEL.Core.Labels.Servicios
                 {
                     using var pd = new PrintDocument();
                     pd.PrinterSettings.PrinterName = printerName;
-                    pd.PrinterSettings.Copies = 1; // Manejamos las copias manualmente para procesar variables
+                    pd.PrinterSettings.Copies = 1;
+                    
+                    // Importante: No mostrar diálogos de impresión que puedan resetear el tamaño
+                    pd.PrintController = new StandardPrintController();
 
-                    var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(template, data, i + 1);
+                    // Configurar el tamaño del papel dinámicamente según el template
+                    // Centésimas de pulgada (hunderths of an inch)
+                    int paperWidth = (int)Math.Round(template.LabelRectangle.Width / 72.0 * 100.0);
+                    int paperHeight = (int)Math.Round(template.LabelRectangle.Height / 72.0 * 100.0);
+                    
+                    var customSize = new PaperSize("Custom Label", paperWidth, paperHeight);
+                    pd.DefaultPageSettings.PaperSize = customSize;
+                    pd.PrinterSettings.DefaultPageSettings.PaperSize = customSize; // Duplicar para compatibilidad
+                    pd.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+                    pd.OriginAtMargins = false; 
+                    var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(template, data, currentCopy: i + 1, currentItem: i + 1, currentPage: i + 1);
 
                     pd.PrintPage += (sender, e) =>
                     {
                         var g = e.Graphics;
-                        if (g is null)
-                        {
-                            return;
-                        }
+                        if (g is null) return;
+                        
                         g.PageUnit = GraphicsUnit.Pixel;
 
-                        // Calcular área imprimible y escala
-                        // Glabels usa puntos (72 DPI). Windows suele usar 100 DPI o 96 DPI para pantalla
-                        // pero la impresora tendrá su propia resolución.
-                        // Renderizaremos a 300 DPI (calidad decente) y escalaremos al Graphics de la impresora
+                        // Usar el DPI de la impresora para el escalado directo
+                        float printerDpiX = g.DpiX;
+                        float printerDpiY = g.DpiY;
 
-                        // Resolución objetivo para renderizado interno
-                        float targetDpi = 300f;
+                        // Calculamos el tamaño final en píxeles reales de la impresora
+                        float finalWidthPx = (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
+                        float finalHeightPx = (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
 
-                        // Renderizar todo a una imagen de alta resolución
+                        // Renderizar internamente a 300 DPI (calidad)
+                        float renderDpi = 300f;
                         using var highResLabel = RenderToBitmap(template, processedData, new RenderSettings
                         {
-                            DPI = targetDpi,
+                            DPI = renderDpi,
                             BackgroundColor = Color.White,
                             AntiAlias = true
                         });
 
-                        // Calcular área de destino centrada
-                        Rectangle printableArea = e.MarginBounds; // Usualmente respeta márgenes físicos
-                        if (pd.OriginAtMargins)
-                        {
-                            // Si el origen está en los márgenes, necesitamos ajustar
-                            // Usaremos PageBounds para tener todo el papel si es posible
-                            printableArea = e.PageBounds;
-                        }
+                        // Configurar calidad de estiramiento/dibujo
+                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        g.SmoothingMode = SmoothingMode.HighQuality;
+                        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-                        // Calcular rectángulo destino
-                        var destRect = CalculateCenteredRenderArea(template, e.PageBounds, e.MarginBounds);
-
-                        // Dibujar la imagen renderizada en el graphics de la impresora
-                        g.DrawImage(highResLabel, destRect);
+                        // Dibujar desde (0,0) ocupando el tamaño calculado
+                        // Esto ignora el centrado fallido y usa el área real definida por PaperSize
+                        g.DrawImage(highResLabel, 0, 0, finalWidthPx, finalHeightPx);
+                        
+                        e.HasMorePages = false;
                     };
 
                     pd.Print();
@@ -346,7 +377,86 @@ namespace SAELABEL.Core.Labels.Servicios
             }
         }
 
-        private async Task<bool> PrintWithSystemCommand(GlabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
+        private bool PrintBatchWithWindowsNative(
+            SaeLabelsTemplate template,
+            IEnumerable<Dictionary<string, string>> itemsData,
+            string printerName,
+            int copiesPerItem)
+        {
+            try
+            {
+                var itemList = itemsData.ToList();
+                if (itemList.Count == 0) return true;
+
+                IncrementalVariableHelper.InitializeIncrementalVariables(template);
+
+                using var pd = new System.Drawing.Printing.PrintDocument();
+                pd.PrinterSettings.PrinterName = printerName;
+                pd.PrinterSettings.Copies = 1; // Manejaremos las copias mediante páginas repetidas
+                pd.PrintController = new System.Drawing.Printing.StandardPrintController();
+
+                int paperWidth = (int)Math.Round(template.LabelRectangle.Width / 72.0 * 100.0);
+                int paperHeight = (int)Math.Round(template.LabelRectangle.Height / 72.0 * 100.0);
+                var customSize = new System.Drawing.Printing.PaperSize("Custom Label", paperWidth, paperHeight);
+                pd.DefaultPageSettings.PaperSize = customSize;
+                pd.PrinterSettings.DefaultPageSettings.PaperSize = customSize;
+                pd.DefaultPageSettings.Margins = new System.Drawing.Printing.Margins(0, 0, 0, 0);
+                pd.OriginAtMargins = false;
+
+                int currentItemIndex = 0;
+                int currentCopyIndex = 0;
+
+                pd.PrintPage += (sender, e) =>
+                {
+                    var itemData = itemList[currentItemIndex];
+                    var processedData = IncrementalVariableHelper.ProcessIncrementalVariables(
+                        template, itemData, currentCopy: currentCopyIndex + 1, currentItem: currentItemIndex + 1, currentPage: (currentItemIndex * copiesPerItem) + currentCopyIndex + 1);
+
+                    var g = e.Graphics;
+                    if (g is null) return;
+
+                    g.PageUnit = GraphicsUnit.Pixel;
+                    float printerDpiX = g.DpiX;
+                    float printerDpiY = g.DpiY;
+                    float finalWidthPx = (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
+                    float finalHeightPx = (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
+
+                    float renderDpi = 300f;
+                    using var highResLabel = RenderToBitmap(template, processedData, new RenderSettings
+                    {
+                        DPI = renderDpi,
+                        BackgroundColor = Color.White,
+                        AntiAlias = true
+                    });
+
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    
+                    g.DrawImage(highResLabel, 0, 0, finalWidthPx, finalHeightPx);
+
+                    currentCopyIndex++;
+                    if (currentCopyIndex >= copiesPerItem)
+                    {
+                        currentCopyIndex = 0;
+                        currentItemIndex++;
+                    }
+
+                    e.HasMorePages = currentItemIndex < itemList.Count;
+                };
+
+                pd.Print();
+                IncrementalVariableHelper.UpdateIncrementalVariables(template, itemList.Count * copiesPerItem);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error en impresión por lotes nativa Windows");
+                return false;
+            }
+        }
+
+        private async Task<bool> PrintWithSystemCommand(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
         {
             // Implementación básica para lp (Unix/Linux)
             // Se generaría una imagen temporal y se enviaría a lp
@@ -573,8 +683,8 @@ namespace SAELABEL.Core.Labels.Servicios
                     VerticalAlignment.Bottom => StringAlignment.Far,
                     _ => StringAlignment.Near
                 },
-                Trimming = StringTrimming.EllipsisCharacter,
-                FormatFlags = StringFormatFlags.LineLimit
+                Trimming = StringTrimming.None,
+                FormatFlags = 0
             };
 
             // Configurar el modo de wrap según la propiedad WrapMode
@@ -654,28 +764,32 @@ namespace SAELABEL.Core.Labels.Servicios
             // Estimación basada en la altura total
             return (int)Math.Ceiling(size.Height / lineHeight);
         }
-        private void ApplyTransformations(Graphics g, TemplateObject obj, float x, float y)
+        private void ApplyTransformations(Graphics g, TemplateObject obj, float x, float y, float scale)
         {
-            // Aplicar rotación si está configurada
-            if (obj.Rotate)
-            {
-                float centerX = x + (float)obj.Width / 2;
-                float centerY = y + (float)obj.Height / 2;
-                g.TranslateTransform(centerX, centerY);
-                g.RotateTransform(obj.RotationAngle);
-                g.TranslateTransform(-centerX, -centerY);
-            }
+            float w = (float)(obj.Width * scale);
+            float h = (float)(obj.Height * scale);
 
-            // Aplicar matriz de transformación si está configurada
+            // 1. Mover al centro del objeto
+            g.TranslateTransform(x + w / 2, y + h / 2);
+
+            // 2. Aplicar matriz de transformación (A, B, C, D) de la UI/Glabels
             if (obj.Matrix != null && !obj.Matrix.IsIdentity)
             {
-                var matrix = new Matrix(
+                using var matrix = new Matrix(
                     (float)obj.Matrix.A, (float)obj.Matrix.B,
                     (float)obj.Matrix.C, (float)obj.Matrix.D,
-                    (float)obj.Matrix.E, (float)obj.Matrix.F
+                    0, 0
                 );
                 g.MultiplyTransform(matrix);
             }
+            else if (obj.RotationAngle != 0)
+            {
+                // 3. Aplicar rotación explícita SOLO si no hay matriz (la matriz generada por toAffine ya lo incluye)
+                g.RotateTransform(obj.RotationAngle);
+            }
+
+            // 4. Mover de vuelta para que (0,0) sea la esquina superior izquierda del objeto
+            g.TranslateTransform(-w / 2, -h / 2);
         }
         private void RenderBarcode(Graphics g, BarcodeObject barcodeObj, Dictionary<string, string> data, float x, float y, float width, float height)
         {
@@ -693,68 +807,69 @@ namespace SAELABEL.Core.Labels.Servicios
                 BarcodeFormat format;
                 bool needsAsterisks = false;
 
-                /* switch (barcodeObj.BarcodeType.ToLower())
-                 {
-                     case "code39":
-                     case "code_39":
-                         format = BarcodeFormat.CODE_39;
-                         needsAsterisks = true;
-                         break;
-                     case "code128":
-                     case "code_128":
-                         format = BarcodeFormat.CODE_128;
-                         break;
-                     case "qrcode":
-                     case "qr_code":
-                     case "qr":
-                         format = BarcodeFormat.QR_CODE;
-                         break;
-                     case "ean13":
-                     case "ean_13":
-                         format = BarcodeFormat.EAN_13;
-                         // EAN13 requiere exactamente 13 dígitos
-                         code = code.PadLeft(13, '0').Substring(0, 13);
-                         break;
-                     case "ean8":
-                     case "ean_8":
-                         format = BarcodeFormat.EAN_8;
-                         // EAN8 requiere exactamente 8 dígitos
-                         code = code.PadLeft(8, '0').Substring(0, 8);
-                         break;
-                     case "upca":
-                     case "upc_a":
-                         format = BarcodeFormat.UPC_A;
-                         // UPC-A requiere 12 dígitos
-                         code = code.PadLeft(12, '0').Substring(0, 12);
-                         break;
-                     case "upce":
-                     case "upc_e":
-                         format = BarcodeFormat.UPC_E;
-                         break;
-                     case "itf":
-                         format = BarcodeFormat.ITF;
-                         // ITF requiere longitud par
-                         if (code.Length % 2 != 0)
-                             code = "0" + code;
-                         break;
-                     case "datamatrix":
-                     case "data_matrix":
-                         format = BarcodeFormat.DATA_MATRIX;
-                         break;
-                     default:
-                         _logger.LogWarning($"Tipo de código de barras no reconocido: {barcodeObj.BarcodeType}, usando CODE128 por defecto");
-                         format = BarcodeFormat.CODE_128;
-                         break;
-                 }
-     */
-                format = BarcodeFormat.CODE_128;
-                // Asegurar que CODE_39 tenga asteriscos
+                switch (barcodeObj.BarcodeType.ToLower())
+                {
+                    case "code39":
+                    case "code_39":
+                    case "code-39":
+                        format = BarcodeFormat.CODE_39;
+                        needsAsterisks = true;
+                        break;
+                    case "code128":
+                    case "code_128":
+                    case "code-128":
+                        format = BarcodeFormat.CODE_128;
+                        break;
+                    case "qrcode":
+                    case "qr_code":
+                    case "qr-code":
+                    case "qr":
+                        format = BarcodeFormat.QR_CODE;
+                        break;
+                    case "ean13":
+                    case "ean_13":
+                    case "ean-13":
+                        format = BarcodeFormat.EAN_13;
+                        code = code.PadLeft(13, '0').Substring(0, 13);
+                        break;
+                    case "ean8":
+                    case "ean_8":
+                    case "ean-8":
+                        format = BarcodeFormat.EAN_8;
+                        code = code.PadLeft(8, '0').Substring(0, 8);
+                        break;
+                    case "upc":
+                    case "upca":
+                    case "upc_a":
+                    case "upc-a":
+                        format = BarcodeFormat.UPC_A;
+                        code = code.PadLeft(12, '0').Substring(0, 12);
+                        break;
+                    case "upce":
+                    case "upc_e":
+                    case "upc-e":
+                        format = BarcodeFormat.UPC_E;
+                        break;
+                    case "itf":
+                        format = BarcodeFormat.ITF;
+                        if (code.Length % 2 != 0) code = "0" + code;
+                        break;
+                    case "datamatrix":
+                    case "data_matrix":
+                    case "data-matrix":
+                        format = BarcodeFormat.DATA_MATRIX;
+                        break;
+                    default:
+                        _logger.LogWarning($"Tipo de código de barras no reconocido: {barcodeObj.BarcodeType}, usando CODE128 por defecto");
+                        format = BarcodeFormat.CODE_128;
+                        break;
+                }
+
                 if (needsAsterisks && !code.StartsWith("*") && !code.EndsWith("*"))
                 {
                     code = "*" + code + "*";
                 }
 
-                // Dimensiones mínimas según el tipo
                 int minWidth, minHeight;
                 if (format == BarcodeFormat.QR_CODE || format == BarcodeFormat.DATA_MATRIX)
                 {
@@ -769,7 +884,6 @@ namespace SAELABEL.Core.Labels.Servicios
                 int barcodeWidth = Math.Max((int)width, minWidth);
                 int barcodeHeight = Math.Max((int)height, minHeight);
 
-                // Crear opciones de codificación
                 var options = new EncodingOptions
                 {
                     Width = barcodeWidth,
@@ -950,21 +1064,28 @@ namespace SAELABEL.Core.Labels.Servicios
                 catch { }
             }
         }
-        private void RenderBox(Graphics g, BoxObject box, float x, float y, float width, float height)
+        private void RenderBox(Graphics g, BoxObject box, float x, float y, float width, float height, float scale)
         {
             using var brush = new SolidBrush(ParseColor(box.FillColor));
-            using var pen = new Pen(ParseColor(box.LineColor), (float)box.LineWidth);
+            using var pen = new Pen(ParseColor(box.LineColor), (float)(box.LineWidth * scale));
             g.FillRectangle(brush, x, y, width, height);
             g.DrawRectangle(pen, x, y, width, height);
         }
 
-        private void RenderLine(Graphics g, LineObject line, float x, float y)
-            => g.DrawLine(new Pen(ParseColor(line.LineColor), (float)line.LineWidth), x, y, x + (float)line.Dx, y + (float)line.Dy);
+        private void RenderLine(Graphics g, LineObject line, float x, float y, float scale)
+        {
+            var color = ParseColor(line.LineColor);
+            if (color == Color.Transparent) return;
 
-        private void RenderEllipse(Graphics g, EllipseObject ellipse, float x, float y, float width, float height)
+            using var pen = new Pen(color, (float)(line.LineWidth * scale));
+            // Con el nuevo sistema de transformaciones, x e y siempre serán 0 aquí
+            g.DrawLine(pen, x, y, x + (float)line.Dx * scale, y + (float)line.Dy * scale);
+        }
+
+        private void RenderEllipse(Graphics g, EllipseObject ellipse, float x, float y, float width, float height, float scale)
         {
             using var brush = new SolidBrush(ParseColor(ellipse.FillColor));
-            using var pen = new Pen(ParseColor(ellipse.LineColor), (float)ellipse.LineWidth);
+            using var pen = new Pen(ParseColor(ellipse.LineColor), (float)(ellipse.LineWidth * scale));
             g.FillEllipse(brush, x, y, width, height);
             g.DrawEllipse(pen, x, y, width, height);
         }
@@ -1020,20 +1141,127 @@ namespace SAELABEL.Core.Labels.Servicios
             g.DrawImage(img, x + (w - newW) / 2, y + (h - newH) / 2, newW, newH);
         }
 
-        private void ApplyRotation(Graphics g, TemplateObject obj, float x, float y)
+
+        private void RenderPath(Graphics g, PathObject pathObj, float x, float y, float width, float height, float scale)
         {
-            if (!obj.Rotate) return;
-            float cx = x + (float)obj.Width / 2;
-            float cy = y + (float)obj.Height / 2;
-            g.TranslateTransform(cx, cy);
-            g.RotateTransform(obj.RotationAngle);
-            g.TranslateTransform(-cx, -cy);
+            if (string.IsNullOrEmpty(pathObj.Data)) return;
+
+            try
+            {
+                using var path = new System.Drawing.Drawing2D.GraphicsPath();
+                string data = pathObj.Data;
+                
+                // Tokenizer robusto para comandos SVG Path (M, L, Z, H, V, C, etc.)
+                // Este regex captura comandos (una letra) y números (decimales con posible signo)
+                var tokens = System.Text.RegularExpressions.Regex.Matches(data, @"([A-Za-z])|([-+]?[0-9]*\.?[0-9]+)");
+                
+                // El viewBox de los Paths SVG en Glabels/Frontend es 0 0 24 24
+                float scaleX = width / 24f;
+                float scaleY = height / 24f;
+
+                float currentX = 0, currentY = 0;
+                float startX = 0, startY = 0;
+                char currentCmd = '\0';
+                int tokenIdx = 0;
+
+                while (tokenIdx < tokens.Count)
+                {
+                    var token = tokens[tokenIdx].Value;
+                    if (char.IsLetter(token[0]))
+                    {
+                        currentCmd = char.ToUpper(token[0]);
+                        tokenIdx++;
+                    }
+
+                    var pairs = new List<float>();
+                    while (tokenIdx < tokens.Count && !char.IsLetter(tokens[tokenIdx].Value[0]))
+                    {
+                        if (float.TryParse(tokens[tokenIdx].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float val))
+                            pairs.Add(val);
+                        tokenIdx++;
+                    }
+
+                    switch (currentCmd)
+                    {
+                        case 'M':
+                            if (pairs.Count >= 2)
+                            {
+                                currentX = pairs[0];
+                                currentY = pairs[1];
+                                startX = currentX; startY = currentY;
+                                path.StartFigure();
+                            }
+                            break;
+                        case 'L':
+                            for (int i = 0; i < pairs.Count - 1; i += 2)
+                            {
+                                float nextX = pairs[i];
+                                float nextY = pairs[i + 1];
+                                // Dibujar relativo a (0,0) escalando coordenadas por viewBox y DPI
+                                path.AddLine(currentX * scaleX, currentY * scaleY, nextX * scaleX, nextY * scaleY);
+                                currentX = nextX;
+                                currentY = nextY;
+                            }
+                            break;
+                        case 'H':
+                            foreach (var hVal in pairs)
+                            {
+                                float nextX = hVal;
+                                path.AddLine(currentX * scaleX, currentY * scaleY, nextX * scaleX, currentY * scaleY);
+                                currentX = nextX;
+                            }
+                            break;
+                        case 'V':
+                            foreach (var vValue in pairs)
+                            {
+                                float nextY = vValue;
+                                path.AddLine(currentX * scaleX, currentY * scaleY, currentX * scaleX, nextY * scaleY);
+                                currentY = nextY;
+                            }
+                            break;
+                        case 'Z':
+                            if (path.PointCount > 0)
+                            {
+                                path.AddLine(currentX * scaleX, currentY * scaleY, startX * scaleX, startY * scaleY);
+                                path.CloseFigure();
+                            }
+                            break;
+                    }
+                }
+
+                if (path.PointCount > 0)
+                {
+                    var fillColor = ParseColor(pathObj.FillColor);
+                    if (fillColor != Color.Transparent)
+                    {
+                        using var brush = new SolidBrush(fillColor);
+                        g.FillPath(brush, path);
+                    }
+
+                    var lineColor = ParseColor(pathObj.LineColor);
+                    if (lineColor != Color.Transparent)
+                    {
+                        using var pen = new Pen(lineColor, (float)(pathObj.LineWidth * scale));
+                        g.DrawPath(pen, path);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error renderizando path: {pathObj.Data}");
+            }
         }
 
         private string ReplaceVariables(string content, Dictionary<string, string> data)
         {
-            foreach (var kv in data) content = content.Replace($"${{{kv.Key}}}", kv.Value);
-            return content;
+            if (string.IsNullOrEmpty(content) || data == null || data.Count == 0) return content;
+            
+            // Usar Regex para un reemplazo más limpio y evitar problemas con caracteres especiales
+            return System.Text.RegularExpressions.Regex.Replace(content, @"\$\{([^}]+)\}", match =>
+            {
+                var key = match.Groups[1].Value;
+                return data.TryGetValue(key, out var val) ? val : match.Value;
+            });
         }
 
         private Font CreateFont(TextObject obj)
@@ -1058,7 +1286,8 @@ namespace SAELABEL.Core.Labels.Servicios
 
         private Color ParseColor(string hex)
         {
-            if (string.IsNullOrWhiteSpace(hex)) return Color.Transparent;
+            if (string.IsNullOrWhiteSpace(hex) || hex.Equals("none", StringComparison.OrdinalIgnoreCase) || hex.Equals("transparent", StringComparison.OrdinalIgnoreCase)) 
+                return Color.Transparent;
 
             try
             {
@@ -1093,31 +1322,6 @@ namespace SAELABEL.Core.Labels.Servicios
             return Color.Black;
         }
 
-        //private Color ParseColor(string hex)
-        //{
-        //    if (string.IsNullOrWhiteSpace(hex)) return Color.Transparent;
-
-        //    // Normalizar entrada
-        //    hex = hex.Trim().TrimStart('#');
-
-        //    try
-        //    {
-        //        // Formato RRGGBB
-        //        if (hex.Length == 6)
-        //        {
-        //            var r = int.Parse(hex.Substring(0, 2), NumberStyles.HexNumber);
-        //            var g = int.Parse(hex.Substring(2, 2), NumberStyles.HexNumber);
-        //            var b = int.Parse(hex.Substring(4, 2), NumberStyles.HexNumber);
-        //            return Color.FromArgb(255, r, g, b);
-        //        }
-
-        //        // Formato AARRGGBB (común)
-        //        if (hex.Length == 8)
-        //        {
-        //            var a = int.Parse(hex.Substring(0, 2), NumberStyles.HexNumber);
-        //            var r = int.Parse(hex.Substring(2, 2), NumberStyles.HexNumber);
-        //            var g = int.Parse(hex.Substring(4, 2), NumberStyles.HexNumber);
-        //            var b = int.Parse(hex.Substring(6, 2), NumberStyles.HexNumber);
         //            return Color.FromArgb(a, r, g, b);
         //        }
 
@@ -1176,28 +1380,17 @@ namespace SAELABEL.Core.Labels.Servicios
                    printerName.Contains("thermal", StringComparison.OrdinalIgnoreCase);
         }
 
-        private RectangleF CalculateCenteredRenderArea(GlabelsTemplate template, Rectangle bounds, RectangleF printableArea)
+        private RectangleF CalculateCenteredRenderArea(SaeLabelsTemplate template, Rectangle bounds, RectangleF printableArea, float dpiX = 96f, float dpiY = 96f)
         {
-            // Convertir dimensiones de template a píxeles
-            var templateWidthPx = UnitConverter.PointsToPixels(template.LabelRectangle.Width, 96);
-            var templateHeightPx = UnitConverter.PointsToPixels(template.LabelRectangle.Height, 96);
+            // Convertir dimensiones de template a píxeles usando el DPI proporcionado
+            var templateWidthPx = UnitConverter.PointsToPixels(template.LabelRectangle.Width, dpiX);
+            var templateHeightPx = UnitConverter.PointsToPixels(template.LabelRectangle.Height, dpiY);
 
-            // Calcular posición centrada considerando el área imprimible
+            // Calcular posición centrada
             float x = (float)(printableArea.Left + (printableArea.Width - templateWidthPx) / 2);
             float y = (float)(printableArea.Top + (printableArea.Height - templateHeightPx) / 2);
-
-            // Asegurar que no nos salgamos del área imprimible
-            x = Math.Max(x, (float)printableArea.Left);
-            y = Math.Max(y, (float)printableArea.Top);
-
-            // Asegurar que el ancho y alto no excedan el área disponible
-            float width = (float)Math.Min(templateWidthPx, printableArea.Width - (x - printableArea.Left));
-            float height = (float)Math.Min(templateHeightPx, printableArea.Height - (y - printableArea.Top));
-
-            _logger.LogDebug($"Área de renderizado - X: {x}, Y: {y}, Width: {width}, Height: {height}");
-            _logger.LogDebug($"Área imprimible - Left: {printableArea.Left}, Top: {printableArea.Top}, Width: {printableArea.Width}, Height: {printableArea.Height}");
-
-            return new RectangleF(x, y, width, height);
+            
+            return new RectangleF(x, y, (float)templateWidthPx, (float)templateHeightPx);
         }
         private void ValidateImageFormat(string format)
         {
@@ -1217,4 +1410,5 @@ namespace SAELABEL.Core.Labels.Servicios
         public int MinimumHeight { get; set; } = 100;
     }
 }
+
 
