@@ -1,0 +1,108 @@
+{
+  "elements": [
+    {
+      "id": "e6fe518e89da41a8983b9a11a644105a",
+      "key": "text",
+      "name": "Texto",
+      "category": "basic",
+      "objectType": "text",
+      "defaultWidthPt": 90,
+      "defaultHeightPt": 24,
+      "defaultContent": "${texto}"
+    },
+    {
+      "id": "9995b1653fd04f1db084a3a86bd08423",
+      "key": "barcode",
+      "name": "Barcode",
+      "category": "basic",
+      "objectType": "barcode",
+      "defaultWidthPt": 80,
+      "defaultHeightPt": 32,
+      "defaultContent": "${barcode}"
+    },
+    {
+      "id": "483a6a9bff424427a43253dd33cbd477",
+      "key": "box",
+      "name": "Caja",
+      "category": "shapes",
+      "objectType": "box",
+      "defaultWidthPt": 60,
+      "defaultHeightPt": 30,
+      "defaultContent": ""
+    },
+    {
+      "id": "00cd619f149f42ca8b80cb8402d3fa86",
+      "key": "ellipse",
+      "name": "Elipse",
+      "category": "shapes",
+      "objectType": "ellipse",
+      "defaultWidthPt": 40,
+      "defaultHeightPt": 40,
+      "defaultContent": ""
+    },
+    {
+      "id": "e673c64200b04510af6d5edf595e61f0",
+      "key": "line",
+      "name": "Linea",
+      "category": "shapes",
+      "objectType": "line",
+      "defaultWidthPt": 70,
+      "defaultHeightPt": 1,
+      "defaultContent": ""
+    },
+    {
+      "id": "1f8b8c9e90374241a3fcf5bdf8415d01",
+      "key": "image",
+      "name": "Imagen",
+      "category": "media",
+      "objectType": "image",
+      "defaultWidthPt": 40,
+      "defaultHeightPt": 40,
+      "defaultContent": ""
+    },
+    {
+      "id": "f08fbab52d5e41bc84b61ce866c4200d",
+      "key": "text",
+      "name": "Texto",
+      "category": "basic",
+      "objectType": "text",
+      "defaultWidthPt": 90,
+      "defaultHeightPt": 24,
+      "defaultContent": "${texto}"
+    }
+  ],
+  "documents": [
+    {
+      "id": "554ed8d794834a99a8669fa18e215ced",
+      "name": "Label1",
+      "kind": "sae",
+      "xml": "\u003CSaeLabels version=\u00221.0\u0022\u003E\u003Ctemplate brand=\u0022Custom\u0022 description=\u0022Etiqueta 55mm x 28 mm para Productos\u0022 part=\u0022P-1\u0022 size=\u002255mm x 28mm\u0022\u003E\u003Clabel_rectangle width_pt=\u0022155.9055\u0022 height_pt=\u002279.3701\u0022 round_pt=\u00220\u0022 x_waste_pt=\u00220\u0022 y_waste_pt=\u00220\u0022 /\u003E\u003Clayout dx_pt=\u00220\u0022 dy_pt=\u00220\u0022 nx=\u00221\u0022 ny=\u00221\u0022 x0_pt=\u00220\u0022 y0_pt=\u00220\u0022 /\u003E\u003C/template\u003E\u003Cobjects /\u003E\u003Cvariables /\u003E\u003C/SaeLabels\u003E",
+      "createdAtUtc": "2026-03-03T18:29:54.210375Z",
+      "updatedAtUtc": "2026-03-03T21:06:01.564997Z"
+    },
+    {
+      "id": "33f283a4c84f422190990f08ddde889b",
+      "name": "Label1 (Copia)",
+      "kind": "sae",
+      "xml": "\u003CSaeLabels version=\u00221.0\u0022\u003E\u003Ctemplate brand=\u0022Custom\u0022 description=\u0022Etiqueta 55mm x 28 mm para Productos\u0022 part=\u0022P-1\u0022 size=\u002255mm x 28mm\u0022\u003E\u003Clabel_rectangle width_pt=\u0022155.9055\u0022 height_pt=\u002279.3701\u0022 round_pt=\u00220\u0022 x_waste_pt=\u00220\u0022 y_waste_pt=\u00220\u0022 /\u003E\u003Clayout dx_pt=\u00220\u0022 dy_pt=\u00220\u0022 nx=\u00221\u0022 ny=\u00221\u0022 x0_pt=\u00220\u0022 y0_pt=\u00220\u0022 /\u003E\u003C/template\u003E\u003Cobjects /\u003E\u003Cvariables /\u003E\u003C/SaeLabels\u003E",
+      "createdAtUtc": "2026-03-03T21:06:08.1156269Z",
+      "updatedAtUtc": "2026-03-03T21:06:29.064025Z"
+    },
+    {
+      "id": "02369d82a1e845f7a2eb17789e8513a0",
+      "name": "Sin titulo",
+      "kind": "glabels",
+      "xml": "\u003CSaeLabels version=\u00221.0\u0022\u003E\u003Ctemplate brand=\u0022SAE\u0022 description=\u0022Etiqueta\u0022 part=\u0022P-1\u0022 size=\u0022custom\u0022\u003E\u003Clabel_rectangle width_pt=\u0022155.9055\u0022 height_pt=\u002279.3701\u0022 round_pt=\u00220\u0022 x_waste_pt=\u00220\u0022 y_waste_pt=\u00220\u0022/\u003E\u003Clayout dx_pt=\u00220\u0022 dy_pt=\u00220\u0022 nx=\u00221\u0022 ny=\u00221\u0022 x0_pt=\u00220\u0022 y0_pt=\u00220\u0022/\u003E\u003C/template\u003E\u003Cobjects/\u003E\u003Cvariables/\u003E\u003C/SaeLabels\u003E",
+      "createdAtUtc": "2026-03-03T21:22:12.8182824Z",
+      "updatedAtUtc": "2026-03-03T21:24:48.2524422Z"
+    },
+    {
+      "id": "39f03dd9ff1e42139c2b10c32370b219",
+      "name": "Sin titulo",
+      "kind": "sae",
+      "xml": "\u003CSaeLabels version=\u00221.0\u0022\u003E\u003Ctemplate brand=\u0022SAE\u0022 description=\u0022Etiqueta\u0022 part=\u0022P-1\u0022 size=\u0022custom\u0022\u003E\u003Clabel_rectangle width_pt=\u0022155.9055\u0022 height_pt=\u002279.3701\u0022 round_pt=\u00220\u0022 x_waste_pt=\u00220\u0022 y_waste_pt=\u00220\u0022/\u003E\u003Clayout dx_pt=\u00220\u0022 dy_pt=\u00220\u0022 nx=\u00221\u0022 ny=\u00221\u0022 x0_pt=\u00220\u0022 y0_pt=\u00220\u0022/\u003E\u003C/template\u003E\u003Cobjects/\u003E\u003Cvariables/\u003E\u003C/SaeLabels\u003E",
+      "createdAtUtc": "2026-03-03T21:26:42.6095384Z",
+      "updatedAtUtc": "2026-03-03T21:26:42.6095384Z"
+    }
+  ]
+}

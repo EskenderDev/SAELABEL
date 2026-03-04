@@ -1,0 +1,462 @@
+using Microsoft.Extensions.Logging;
+using SAE.STUDIO.Core.Labels.Modelos;
+using SAE.STUDIO.Core.Labels.Helpers;
+using SAE.STUDIO.Core.Labels.Caching;
+using SAE.STUDIO.Core.Labels.Servicios;
+using System.Xml.Linq;
+using System.IO;
+#pragma warning disable CS8600, CS8601, CS8602, CS8603, CS8604
+
+namespace SAE.STUDIO.Core.Labels.Servicios
+{
+    public class SaeLabelsTemplateService
+    {
+        private readonly TemplateCache _cache;
+        private readonly ILogger _logger;
+
+        public SaeLabelsTemplateService(ILogger<SaeLabelsTemplateService> logger, TemplateCache cache)
+        {
+            _logger = logger;
+            _cache = cache;
+        }
+
+        public SaeLabelsTemplate LoadTemplate(string xmlFilePath)
+        {
+            // Verificar cache primero
+            if (_cache.TryGetTemplate(xmlFilePath, out var cachedTemplate))
+            {
+                return cachedTemplate;
+            }
+
+            var doc = XDocument.Load(xmlFilePath);
+            var template = ParseDocument(doc, xmlFilePath);
+
+            // Guardar en cache
+            _cache.AddTemplate(xmlFilePath, template);
+
+            return template;
+        }
+
+        public SaeLabelsTemplate ParseTemplateXml(string xmlContent, string sourceName = "")
+        {
+            if (string.IsNullOrWhiteSpace(xmlContent))
+            {
+                throw new InvalidDataException("El contenido XML está vacío.");
+            }
+
+            var doc = XDocument.Parse(xmlContent);
+            return ParseDocument(doc, sourceName);
+        }
+
+        private SaeLabelsTemplate ParseDocument(XDocument doc, string sourceName)
+        {
+            var template = new SaeLabelsTemplate
+            {
+                FilePath = sourceName,
+                LastModified = string.IsNullOrWhiteSpace(sourceName) || !File.Exists(sourceName)
+                    ? DateTime.UtcNow
+                    : File.GetLastWriteTime(sourceName)
+            };
+
+            // Parsear elemento Template
+            var root = doc.Root ?? throw new InvalidDataException("XML sin nodo raíz.");
+            var templateElement = root.Name.LocalName.Equals("Template", StringComparison.OrdinalIgnoreCase) 
+                ? root 
+                : (root.Element("Template") ?? root.Element("template"));
+            if (templateElement is null)
+            {
+                throw new InvalidDataException("No se encontró el nodo Template en el XML.");
+            }
+            template.Brand = (string?)templateElement.Attribute("brand") ?? string.Empty;
+            template.Description = (string?)templateElement.Attribute("description") ?? string.Empty;
+            template.Part = (string?)templateElement.Attribute("part") ?? string.Empty;
+            template.Size = (string?)templateElement.Attribute("size") ?? string.Empty;
+
+            // Parsear meta información
+            var metaElement = templateElement.Element("Meta");
+            if (metaElement != null)
+            {
+                template.ProductUrl = (string?)metaElement.Attribute("product_url") ?? string.Empty;
+            }
+
+            // Parsear Label-rectangle
+            var rectElement = templateElement.Element("Label-rectangle") ?? templateElement.Element("label_rectangle")
+                ?? throw new InvalidDataException("No se encontró Label-rectangle en la plantilla.");
+            template.LabelRectangle = new LabelRectangle
+            {
+                Width = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("width_pt") ?? (string?)rectElement.Attribute("width") ?? "0pt"),
+                Height = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("height_pt") ?? (string?)rectElement.Attribute("height") ?? "0pt"),
+                Round = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("round_pt") ?? (string?)rectElement.Attribute("round") ?? "0pt"),
+                XWaste = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("x_waste_pt") ?? (string?)rectElement.Attribute("x_waste") ?? "0pt"),
+                YWaste = UnitConverter.ParseMeasurement((string?)rectElement.Attribute("y_waste_pt") ?? (string?)rectElement.Attribute("y_waste") ?? "0pt")
+            };
+
+            // Parsear Layout
+            var layoutElement = rectElement.Element("Layout") ?? rectElement.Element("layout");
+            template.LabelRectangle.Layout = new Layout
+            {
+                Dx = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("dx_pt") ?? (string?)layoutElement?.Attribute("dx") ?? "0pt"),
+                Dy = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("dy_pt") ?? (string?)layoutElement?.Attribute("dy") ?? "0pt"),
+                Nx = (int?)layoutElement?.Attribute("nx") ?? 1,
+                Ny = (int?)layoutElement?.Attribute("ny") ?? 1,
+                X0 = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("x0_pt") ?? (string?)layoutElement?.Attribute("x0") ?? "0pt"),
+                Y0 = UnitConverter.ParseMeasurement((string?)layoutElement?.Attribute("y0_pt") ?? (string?)layoutElement?.Attribute("y0") ?? "0pt")
+            };
+
+            // Parsear Objects
+            var objectsElement = root.Element("Objects") ?? root.Element("objects");
+            template.Objects = ParseObjects(objectsElement);
+
+            // Parsear Variables
+            var variablesElement = root.Element("Variables") ?? root.Element("variables");
+            if (variablesElement != null)
+            {
+                template.Variables = ParseVariables(variablesElement);
+            }
+
+            return template;
+        }
+
+        private List<TemplateObject> ParseObjects(XElement? objectsElement)
+        {
+            var objects = new List<TemplateObject>();
+            if (objectsElement is null)
+            {
+                return objects;
+            }
+
+            var rotate = (bool?)objectsElement.Attribute("rotate") ?? false;
+
+            foreach (var objElement in objectsElement.Elements())
+            {
+                var obj = ParseSingleObject(objElement);
+                if (obj != null)
+                {
+                    obj.Rotate = rotate;
+                    objects.Add(obj);
+                }
+            }
+
+            return objects;
+        }
+
+        private TemplateObject? ParseSingleObject(XElement element)
+        {
+            var commonProps = ParseCommonProperties(element);
+
+            var objectType = element.Name.LocalName;
+            if (objectType.Equals("object", StringComparison.OrdinalIgnoreCase))
+            {
+                var typeAttr = element.Attribute("type")?.Value;
+                if (!string.IsNullOrEmpty(typeAttr))
+                {
+                    objectType = "Object-" + typeAttr;
+                }
+            }
+
+            return objectType switch
+            {
+                "Object-text" => ParseTextObject(element, commonProps),
+                "Object-barcode" => ParseBarcodeObject(element, commonProps),
+                "Object-box" => ParseBoxObject(element, commonProps),
+                "Object-line" => ParseLineObject(element, commonProps),
+                "Object-ellipse" => ParseEllipseObject(element, commonProps),
+                "Object-image" => ParseImageObject(element, commonProps),
+                "Object-path" => ParsePathObject(element, commonProps),
+                _ => null!
+            };
+        }
+
+        private CommonObjectProperties ParseCommonProperties(XElement element)
+        {
+            var rotation = (double?)element.Attribute("rot_deg") ?? 0;
+            
+            return new CommonObjectProperties
+            {
+                X = UnitConverter.ParseMeasurement((string?)element.Attribute("x_pt") ?? (string?)element.Attribute("x") ?? "0pt"),
+                Y = UnitConverter.ParseMeasurement((string?)element.Attribute("y_pt") ?? (string?)element.Attribute("y") ?? "0pt"),
+                Width = UnitConverter.ParseMeasurement((string?)element.Attribute("w_pt") ?? (string?)element.Attribute("w") ?? "0pt"),
+                Height = UnitConverter.ParseMeasurement((string?)element.Attribute("h_pt") ?? (string?)element.Attribute("h") ?? "0pt"),
+                LockAspectRatio = (bool?)element.Attribute("lock_aspect_ratio") ?? false,
+                Matrix = ParseMatrix(element),
+                Shadow = ParseShadow(element),
+                Rotation = rotation
+            };
+        }
+
+        private TransformationMatrix ParseMatrix(XElement element)
+        {
+            // Usar las propiedades correctas: A, B, C, D, E, F
+            return new TransformationMatrix
+            {
+                A = (double?)element.Attribute("a0") ?? 1,  // a0 -> A
+                B = (double?)element.Attribute("a1") ?? 0,  // a1 -> B
+                C = (double?)element.Attribute("a2") ?? 0,  // a2 -> C
+                D = (double?)element.Attribute("a3") ?? 1,  // a3 -> D
+                E = (double?)element.Attribute("a4") ?? 0,  // a4 -> E
+                F = (double?)element.Attribute("a5") ?? 0   // a5 -> F
+            };
+        }
+
+        private ShadowEffect? ParseShadow(XElement element)
+        {
+            var shadowEnabled = (bool?)element.Attribute("shadow") ?? false;
+            if (!shadowEnabled) return null;
+
+            return new ShadowEffect
+            {
+                Enabled = true,
+                Color = (string)element.Attribute("shadow_color"),
+                Opacity = (double?)element.Attribute("shadow_opacity") ?? 0.5,
+                OffsetX = UnitConverter.ParseMeasurement((string)element.Attribute("shadow_x")),
+                OffsetY = UnitConverter.ParseMeasurement((string)element.Attribute("shadow_y"))
+            };
+        }
+
+        // Métodos específicos para cada tipo de objeto...
+        private TextObject ParseTextObject(XElement element, CommonObjectProperties common)
+        {
+            var textObj = new TextObject();
+            ApplyCommonProperties(textObj, common);
+
+            textObj.Content = element.Element("p")?.Value ?? element.Element("content")?.Value ?? element.Value ?? string.Empty;
+            textObj.FontFamily = (string)element.Attribute("font_family") ?? "Sans";
+            textObj.FontSize = (double?)element.Attribute("font_size") ?? 10;
+            textObj.Color = (string)element.Attribute("color") ?? "000000FF"; // Negro por defecto
+            textObj.Alignment = ParseTextAlignment((string)element.Attribute("align"));
+            textObj.VerticalAlignment = ParseVerticalAlignment((string)element.Attribute("valign"));
+            textObj.FontItalic = (bool?)element.Attribute("font_italic") ?? false;
+            textObj.FontUnderline = (bool?)element.Attribute("font_underline") ?? false;
+            textObj.FontWeight = (string)element.Attribute("font_weight") ?? "normal";
+            textObj.LineSpacing = (double?)element.Attribute("line_spacing") ?? 1;
+            textObj.AutoShrink = (bool?)element.Attribute("auto_shrink") ?? false;
+            textObj.WrapMode = ParseWrapMode((string)element.Attribute("wrap"));
+
+            return textObj;
+        }
+
+        private BarcodeObject ParseBarcodeObject(XElement element, CommonObjectProperties common)
+        {
+            var barcodeObj = new BarcodeObject();
+            ApplyCommonProperties(barcodeObj, common);
+
+            barcodeObj.Data = (string)element.Attribute("data") ?? element.Element("content")?.Value ?? string.Empty;
+            barcodeObj.BarcodeType = (string)element.Attribute("style") ?? "code39";
+            barcodeObj.ShowText = (bool?)element.Attribute("show_text") ?? (bool?)element.Attribute("text") ?? true;
+            barcodeObj.Checksum = (bool?)element.Attribute("checksum") ?? true;
+            barcodeObj.Color = (string)element.Attribute("color") ?? "000000FF"; // Negro por defecto
+            barcodeObj.Backend = (string)element.Attribute("backend");
+
+            return barcodeObj;
+        }
+
+        private BoxObject ParseBoxObject(XElement element, CommonObjectProperties common)
+        {
+            var boxObj = new BoxObject();
+            ApplyCommonProperties(boxObj, common);
+
+            boxObj.FillColor = (string?)element.Attribute("fill_color") ?? (string?)element.Attribute("color") ?? "FFFFFFFF"; // Blanco por defecto
+            boxObj.LineColor = (string)element.Attribute("line_color") ?? "000000FF"; // Negro por defecto
+            boxObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
+
+            return boxObj;
+        }
+
+        private LineObject ParseLineObject(XElement element, CommonObjectProperties common)
+        {
+            var lineObj = new LineObject();
+            ApplyCommonProperties(lineObj, common);
+
+            lineObj.Dx = UnitConverter.ParseMeasurement((string?)element.Attribute("dx_pt") ?? (string?)element.Attribute("dx") ?? "0pt");
+            lineObj.Dy = UnitConverter.ParseMeasurement((string?)element.Attribute("dy_pt") ?? (string?)element.Attribute("dy") ?? "0pt");
+            lineObj.LineColor = (string)element.Attribute("line_color") ?? "000000FF"; // Negro por defecto
+            lineObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
+
+            return lineObj;
+        }
+
+        private EllipseObject ParseEllipseObject(XElement element, CommonObjectProperties common)
+        {
+            var ellipseObj = new EllipseObject();
+            ApplyCommonProperties(ellipseObj, common);
+
+            ellipseObj.FillColor = (string?)element.Attribute("fill_color") ?? (string?)element.Attribute("color") ?? "FFFFFFFF"; // Blanco por defecto
+            ellipseObj.LineColor = (string)element.Attribute("line_color") ?? "000000FF"; // Negro por defecto
+            ellipseObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
+
+            return ellipseObj;
+        }
+
+        private ImageObject ParseImageObject(XElement element, CommonObjectProperties common)
+        {
+            var imageObj = new ImageObject();
+            ApplyCommonProperties(imageObj, common);
+
+            imageObj.Source = (string)element.Attribute("src");
+            imageObj.LockAspectRatio = (bool?)element.Attribute("lock_aspect_ratio") ?? true;
+
+            return imageObj;
+        }
+
+        private PathObject ParsePathObject(XElement element, CommonObjectProperties common)
+        {
+            var pathObj = new PathObject();
+            ApplyCommonProperties(pathObj, common);
+
+            pathObj.Data = (string)element.Attribute("data") ?? element.Element("content")?.Value ?? string.Empty;
+            pathObj.FillColor = (string?)element.Attribute("fill_color") ?? (string?)element.Attribute("color") ?? "none";
+            pathObj.LineColor = (string)element.Attribute("line_color") ?? "#000000";
+            pathObj.LineWidth = UnitConverter.ParseMeasurement((string)element.Attribute("line_width") ?? "1pt");
+
+            return pathObj;
+        }
+
+        private List<TemplateVariable> ParseVariables(XElement variablesElement)
+        {
+            var variables = new List<TemplateVariable>();
+
+            if (variablesElement == null)
+                return variables;
+
+            foreach (var varElement in variablesElement.Elements("Variable").Concat(variablesElement.Elements("variable")))
+            {
+                try
+                {
+                    var name = varElement.Attribute("name")?.Value;
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        _logger?.LogError("Elemento Variable sin atributo 'name' válido. Se omitirá.");
+                        continue;
+                    }
+
+                    // Parsear StepSize
+                    var stepSizeValue = varElement.Attribute("step")?.Value ?? varElement.Attribute("stepSize")?.Value;
+                    double stepSize = 0;
+                    if (!string.IsNullOrEmpty(stepSizeValue))
+                    {
+                        if (!double.TryParse(stepSizeValue, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out stepSize))
+                        {
+                            _logger?.LogWarning($"StepSize no válido '{stepSizeValue}' para variable '{name}'. Usando 0.");
+                        }
+                    }
+
+                    // Validar y normalizar increment
+                    var incrementValue = varElement.Attribute("increment")?.Value ?? "never";
+                    incrementValue = NormalizeIncrementValue(incrementValue);
+
+                    // Parsear valor inicial
+                    var initialValue = varElement.Attribute("initial")?.Value ?? varElement.Attribute("initialValue")?.Value ?? "0";
+                    double currentValue = 0;
+                    if (double.TryParse(initialValue, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed))
+                    {
+                        currentValue = parsed;
+                    }
+
+                    var typeValue = VariableTypeNormalizer.Normalize(varElement.Attribute("type")?.Value ?? "integer");
+                    VariableTypeNormalizer.ValidateInitialValue(typeValue, initialValue);
+                    VariableTypeNormalizer.ValidateIncrementCompatibility(typeValue, incrementValue);
+                    VariableTypeNormalizer.ValidateStepSize(typeValue, stepSize, incrementValue);
+
+                    var variable = new TemplateVariable
+                    {
+                        Name = name,
+                        Type = typeValue,
+                        InitialValue = initialValue,
+                        CurrentValue = currentValue,
+                        StepSize = stepSize,
+                        Increment = incrementValue
+                    };
+
+                    variables.Add(variable);
+
+                    _logger?.LogInformation($"Variable parseada: {name}, Increment: {incrementValue}, StepSize: {stepSize}, Initial: {initialValue}");
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidDataException($"Error procesando variable '{varElement.Attribute("name")?.Value ?? "desconocida"}': {ex.Message}", ex);
+                }
+            }
+
+            return variables;
+        }
+
+        /// <summary>
+        /// Normaliza y valida el valor de increment
+        /// </summary>
+        private string NormalizeIncrementValue(string increment)
+        {
+            if (string.IsNullOrEmpty(increment))
+                return "never";
+
+            var normalized = increment.ToLower().Trim();
+
+            try
+            {
+                return IncrementModeNormalizer.Normalize(normalized);
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger?.LogWarning(ex, "Valor de increment no válido '{Increment}'. Usando 'never'.", increment);
+                return "never";
+            }
+        }
+        // Helpers para parsing de enums
+        private TextAlignment ParseTextAlignment(string align)
+        {
+            return align?.ToLower() switch
+            {
+                "center" => TextAlignment.Center,
+                "right" => TextAlignment.Right,
+                _ => TextAlignment.Left
+            };
+        }
+
+        private VerticalAlignment ParseVerticalAlignment(string valign)
+        {
+            return valign?.ToLower() switch
+            {
+                "middle" => VerticalAlignment.Middle,
+                "bottom" => VerticalAlignment.Bottom,
+                _ => VerticalAlignment.Top
+            };
+        }
+
+        private WrapMode ParseWrapMode(string wrap)
+        {
+            return wrap?.ToLower() switch
+            {
+                "character" => WrapMode.Character,
+                "none" => WrapMode.None,
+                _ => WrapMode.Word
+            };
+        }
+
+        private void ApplyCommonProperties(TemplateObject obj, CommonObjectProperties common)
+        {
+            obj.X = common.X;
+            obj.Y = common.Y;
+            obj.Width = common.Width;
+            obj.Height = common.Height;
+            obj.LockAspectRatio = common.LockAspectRatio;
+            obj.Matrix = common.Matrix;
+            obj.Shadow = common.Shadow;
+            obj.RotationAngle = (float)common.Rotation;
+        }
+    }
+
+    internal class CommonObjectProperties
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public bool LockAspectRatio { get; set; }
+        public TransformationMatrix Matrix { get; set; } = new();
+        public ShadowEffect? Shadow { get; set; }
+        public double Rotation { get; set; }
+    }
+}
+#pragma warning restore CS8600, CS8601, CS8602, CS8603, CS8604
+
+
+

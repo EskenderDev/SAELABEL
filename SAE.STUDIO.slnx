@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SAE.STUDIO.Api/SAE.STUDIO.Api.csproj" />
+    <Project Path="src/SAE.STUDIO.Core/SAE.STUDIO.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SAE.STUDIO.Core.Tests/SAE.STUDIO.Core.Tests.csproj" />
+  </Folder>
+</Solution>
