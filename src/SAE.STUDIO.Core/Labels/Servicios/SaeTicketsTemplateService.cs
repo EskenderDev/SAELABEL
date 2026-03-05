@@ -41,7 +41,7 @@ public class SaeTicketsTemplateService
             case "text":
             {
                 builder.SetAlignment(ParseAlign(cmd.Attribute("align")?.Value));
-                RenderRichText(builder, ReplaceVars(cmd.Value, data), (bool?)cmd.Attribute("bold") ?? false, ParseFontSize(cmd.Attribute("size")?.Value));
+                RenderRichText(builder, ReplaceVars(cmd.Value, data), (bool?)cmd.Attribute("bold") ?? false, ParseFontSize(cmd.Attribute("size")?.Value), (bool?)cmd.Attribute("extraBold") ?? false);
                 builder.NewLine();
                 break;
             }
@@ -68,9 +68,10 @@ public class SaeTicketsTemplateService
                 var label = ReplaceVars(cmd.Attribute("label")?.Value ?? "TOTAL", data);
                 var value = ReplaceVars(cmd.Attribute("value")?.Value ?? "0",     data);
                 bool bold = (bool?)cmd.Attribute("bold") ?? false;
+                bool extraBold = (bool?)cmd.Attribute("extraBold") ?? false;
                 builder.SetAlignment(TicketAlignment.Left);
-                RenderRichText(builder, PadStr(label, width - value.Length, TicketAlignment.Left, PrinterFontSize.Normal), bold, PrinterFontSize.Normal);
-                RenderRichText(builder, value, bold, PrinterFontSize.Normal);
+                RenderRichText(builder, PadStr(label, width - value.Length, TicketAlignment.Left, PrinterFontSize.Normal), bold, PrinterFontSize.Normal, extraBold);
+                RenderRichText(builder, value, bold, PrinterFontSize.Normal, extraBold);
                 builder.NewLine();
                 break;
             }
@@ -101,7 +102,7 @@ public class SaeTicketsTemplateService
                 var expr = ReplaceVars(cmd.Attribute("expr")?.Value ?? "", data);
                 if (IsFalsy(expr)) break;
                 builder.SetAlignment(ParseAlign(cmd.Attribute("align")?.Value));
-                RenderRichText(builder, ReplaceVars(cmd.Value, data), (bool?)cmd.Attribute("bold") ?? false, PrinterFontSize.Normal);
+                RenderRichText(builder, ReplaceVars(cmd.Value, data), (bool?)cmd.Attribute("bold") ?? false, PrinterFontSize.Normal, (bool?)cmd.Attribute("extraBold") ?? false);
                 builder.NewLine();
                 break;
             }
@@ -114,7 +115,7 @@ public class SaeTicketsTemplateService
                 if (cmdElem != null)
                 {
                     builder.SetAlignment(align);
-                    RenderRichText(builder, ReplaceVars(cmdElem.Value, data), false, PrinterFontSize.Normal);
+                    RenderRichText(builder, ReplaceVars(cmdElem.Value, data), false, PrinterFontSize.Normal, (bool?)cmd.Attribute("extraBold") ?? false);
                     builder.NewLine();
                 }
                 break;
@@ -135,6 +136,7 @@ public class SaeTicketsTemplateService
                     Align  = ParseAlign(c.Attribute("align")?.Value),
                     ShowIf = c.Attribute("showIf")?.Value,
                     Bold   = (bool?)c.Attribute("bold") ?? false,
+                    ExtraBold = (bool?)c.Attribute("extraBold") ?? false,
                     Size   = ParseFontSize(c.Attribute("size")?.Value)
                 }).ToList();
 
@@ -193,7 +195,7 @@ public class SaeTicketsTemplateService
                         else
                         {
                             var val = rowData.TryGetValue($"{listVar}_{i}_{col.Field}", out var fv) ? fv : "";
-                            RenderRichText(builder, PadStr(ReplaceVars(val, rowData), widths[ci], col.Align, col.Size), col.Bold, col.Size);
+                            RenderRichText(builder, PadStr(ReplaceVars(val, rowData), widths[ci], col.Align, col.Size), col.Bold, col.Size, col.ExtraBold);
                         }
                         if (ci < cols.Count - 1) builder.TextPart(" ");
                     }

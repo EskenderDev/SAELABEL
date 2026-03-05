@@ -6,6 +6,11 @@ using Microsoft.AspNetCore.OpenApi;
 using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://localhost:5117");
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = "SAE.STUDIO.Api";
+});
 
 builder.Services.AddControllers();
 var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
