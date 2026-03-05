@@ -5,7 +5,12 @@ using Scalar.AspNetCore;
 using Microsoft.AspNetCore.OpenApi;
 using System.Net;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory
+});
+
 builder.WebHost.UseUrls("http://localhost:5117");
 builder.Host.UseWindowsService(options =>
 {
