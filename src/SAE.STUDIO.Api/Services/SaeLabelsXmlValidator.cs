@@ -11,22 +11,39 @@ public sealed class SaeLabelsXmlValidator : ISaeLabelsXmlValidator
     {
         _schemas = new XmlSchemaSet();
 
-        var labelsPath = Path.Combine(env.ContentRootPath, "Schemas", "SaeLabels.xsd");
-        if (File.Exists(labelsPath))
+        // Resolve the Schemas directory from multiple candidate paths.
+        // When published as a self-contained single-file and running as a Windows
+        // service the working directory and AppContext.BaseDirectory may differ from
+        // the actual install location, so we try the executable's own directory first.
+        var candidateBases = new[]
         {
-            // El primer parámetro null indica que use el targetNamespace del XSD
-            _schemas.Add(null, labelsPath);
+            Path.GetDirectoryName(Environment.ProcessPath) ?? string.Empty,
+            AppContext.BaseDirectory,
+            Directory.GetCurrentDirectory(),
+        };
+
+        string? schemasDir = candidateBases
+            .Select(b => Path.Combine(b, "Schemas"))
+            .FirstOrDefault(Directory.Exists);
+
+        if (schemasDir is null)
+        {
+            throw new FileNotFoundException(
+                "No se encontraron esquemas XSD en la carpeta Schemas. " +
+                "Buscado en: " + string.Join(", ", candidateBases.Select(b => Path.Combine(b, "Schemas"))));
         }
 
-        var ticketsPath = Path.Combine(env.ContentRootPath, "Schemas", "saetickets.xsd");
+        var labelsPath = Path.Combine(schemasDir, "SaeLabels.xsd");
+        if (File.Exists(labelsPath))
+            _schemas.Add(null, labelsPath);
+
+        var ticketsPath = Path.Combine(schemasDir, "saetickets.xsd");
         if (File.Exists(ticketsPath))
-        {
             _schemas.Add(null, ticketsPath);
-        }
 
         if (_schemas.Count == 0)
         {
-            throw new FileNotFoundException("No se encontraron esquemas XSD en la carpeta Schemas.");
+            throw new FileNotFoundException($"Se encontró la carpeta Schemas en '{schemasDir}' pero no contiene archivos XSD válidos (SaeLabels.xsd / saetickets.xsd).");
         }
     }
 
