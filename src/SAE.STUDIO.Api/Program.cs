@@ -37,6 +37,7 @@ builder.Services.AddCors(options =>
                 }
 
                 var isLocalhost = uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                                  uri.Host.Equals("tauri.localhost", StringComparison.OrdinalIgnoreCase) ||
                                   uri.Host.Equals(IPAddress.Loopback.ToString(), StringComparison.OrdinalIgnoreCase);
 
                 var isHttpLocal = (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) && isLocalhost;
