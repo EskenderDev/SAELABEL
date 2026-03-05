@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using SAE.STUDIO.Api.Contracts;
 
 namespace SAE.STUDIO.Api.Services;
@@ -18,17 +19,45 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
     }
 
     // ── Mapper ─────────────────────────────────────────────────────
-    private static LogicalPrinterDto Map(SqliteDataReader r) => new()
+    private static LogicalPrinterDto Map(SqliteDataReader r)
     {
-        Id             = r.GetString(0),
-        Name           = r.GetString(1),
-        Description    = r.IsDBNull(2) ? null : r.GetString(2),
-        PhysicalPrinter = r.GetString(3),
-        IsActive       = r.GetInt32(4) == 1,
-        Copies         = r.IsDBNull(5) ? 1  : r.GetInt32(5),
-        PaperWidth     = r.IsDBNull(6) ? 80 : r.GetInt32(6),
-        MediaType      = r.IsDBNull(7) ? "receipt" : r.GetString(7)
-    };
+        var rawPrinters = r.GetString(3);
+        List<PhysicalPrinterConfig> printers;
+
+        if (string.IsNullOrWhiteSpace(rawPrinters))
+        {
+            printers = new();
+        }
+        else if (rawPrinters.TrimStart().StartsWith("["))
+        {
+            try
+            {
+                printers = JsonSerializer.Deserialize<List<PhysicalPrinterConfig>>(rawPrinters) ?? new();
+            }
+            catch
+            {
+                // Fallback for malformed JSON
+                printers = new List<PhysicalPrinterConfig> { new() { Name = rawPrinters } };
+            }
+        }
+        else
+        {
+            // Legacy plain text printer name
+            printers = new List<PhysicalPrinterConfig> { new() { Name = rawPrinters } };
+        }
+
+        return new LogicalPrinterDto
+        {
+            Id             = r.GetString(0),
+            Name           = r.GetString(1),
+            Description    = r.IsDBNull(2) ? null : r.GetString(2),
+            Printers       = printers,
+            IsActive       = r.GetInt32(4) == 1,
+            Copies         = r.IsDBNull(5) ? 1  : r.GetInt32(5),
+            PaperWidth     = r.IsDBNull(6) ? 80 : r.GetInt32(6),
+            MediaType      = r.IsDBNull(7) ? "receipt" : r.GetString(7)
+        };
+    }
 
     private const string Cols =
         "id, name, description, physical_printer, is_active, copies, paper_width, media_type";
@@ -79,7 +108,7 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
     public LogicalPrinterDto Upsert(UpsertLogicalPrinterRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name)) throw new InvalidDataException("Name is required.");
-        if (string.IsNullOrWhiteSpace(request.PhysicalPrinter)) throw new InvalidDataException("PhysicalPrinter is required.");
+        if (request.Printers == null || request.Printers.Count == 0) throw new InvalidDataException("At least one printer is required.");
 
         var copies     = Math.Max(1, request.Copies);
         var paperWidth = request.PaperWidth is 58 or 80 ? request.PaperWidth : 80;
@@ -106,7 +135,7 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
             cmd.Parameters.AddWithValue("$id",       id);
             cmd.Parameters.AddWithValue("$name",     request.Name.Trim());
             cmd.Parameters.AddWithValue("$desc",     request.Description?.Trim() ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("$physical", request.PhysicalPrinter.Trim());
+            cmd.Parameters.AddWithValue("$physical", JsonSerializer.Serialize(request.Printers));
             cmd.Parameters.AddWithValue("$active",   request.IsActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$copies",   copies);
             cmd.Parameters.AddWithValue("$pw",       paperWidth);
@@ -117,7 +146,7 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
             {
                 Id = id, Name = request.Name.Trim(),
                 Description = request.Description?.Trim(),
-                PhysicalPrinter = request.PhysicalPrinter.Trim(),
+                Printers = request.Printers,
                 IsActive = request.IsActive,
                 Copies = copies, PaperWidth = paperWidth, MediaType = mediaType
             };

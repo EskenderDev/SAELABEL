@@ -29,6 +29,7 @@
       <xs:extension base="xs:string">
         <xs:attribute name="align" type="Alignment" default="left" />
         <xs:attribute name="bold" type="xs:boolean" default="false" />
+        <xs:attribute name="extraBold" type="xs:boolean" default="false" />
         <xs:attribute name="size" type="FontSize" default="normal" />
         <xs:attributeGroup ref="CommonAttributes" />
       </xs:extension>
@@ -52,6 +53,7 @@
     <xs:attribute name="label" type="xs:string" use="required" />
     <xs:attribute name="value" type="xs:string" use="required" />
     <xs:attribute name="bold" type="xs:boolean" default="false" />
+    <xs:attribute name="extraBold" type="xs:boolean" default="false" />
     <xs:attributeGroup ref="CommonAttributes" />
   </xs:complexType>
 
@@ -76,6 +78,7 @@
         <xs:attribute name="expr" type="xs:string" use="required" />
         <xs:attribute name="align" type="Alignment" default="left" />
         <xs:attribute name="bold" type="xs:boolean" default="false" />
+        <xs:attribute name="extraBold" type="xs:boolean" default="false" />
         <xs:attributeGroup ref="CommonAttributes" />
       </xs:extension>
     </xs:simpleContent>
@@ -100,6 +103,7 @@
           <xs:attribute name="width" type="xs:string" default="auto" />
           <xs:attribute name="align" type="Alignment" default="left" />
           <xs:attribute name="bold" type="xs:boolean" default="false" />
+          <xs:attribute name="extraBold" type="xs:boolean" default="false" />
           <xs:attribute name="size" type="FontSize" default="normal" />
           <xs:attributeGroup ref="CommonAttributes" />
         </xs:complexType>

@@ -14,6 +14,9 @@ public interface IEditorLibraryStore
     EditorDocumentDto UpsertDocument(UpsertEditorDocumentRequest request);
     bool DeleteDocument(string id);
 
+    IReadOnlyList<EditorTemplateDto> GetTemplates();
+    EditorTemplateDto UpsertTemplate(UpsertEditorTemplateRequest request);
+
     string? GetSetting(string key);
     void SaveSetting(string key, string value);
 }

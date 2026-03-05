@@ -9,3 +9,5 @@ TestResults/
 *.log
 src/SAELABEL.Api/App_Data/*.db
 src/SAELABEL.Api/App_Data/*.json
+src/SAE.STUDIO.Api/App_Data/*.db
+src/SAE.STUDIO.Api/App_Data/*.json

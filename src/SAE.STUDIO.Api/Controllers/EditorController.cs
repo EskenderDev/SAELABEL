@@ -63,6 +63,17 @@ public sealed class EditorController : ControllerBase
         return Ok(document);
     }
 
+    [HttpGet("documents/by-name/{name}", Name = "GetEditorDocumentByName")]
+    public ActionResult<EditorDocumentDto> GetDocumentByName([FromRoute] string name)
+    {
+        var document = _store.GetDocumentByName(name);
+        if (document is null)
+        {
+            return NotFound();
+        }
+        return Ok(document);
+    }
+
     [HttpPost("documents", Name = "UpsertEditorDocument")]
     public ActionResult<EditorDocumentDto> UpsertDocument([FromBody] UpsertEditorDocumentRequest request)
     {

@@ -164,7 +164,7 @@ public sealed class LabelsController : ControllerBase
             return BadRequest(ex.Message);
         }
         var data = request.Data ?? new Dictionary<string, string>();
-        var copies = request.Copies <= 0 ? 1 : request.Copies;
+        var copies = (request.Copies ?? 0) <= 0 ? 1 : request.Copies!.Value;
 
         try
         {
@@ -214,35 +214,43 @@ public sealed class LabelsController : ControllerBase
             return BadRequest(ex.Message);
         }
         var data = request.Data ?? new Dictionary<string, string>();
-        var copies = request.Copies <= 0 ? 1 : request.Copies;
+        var requestCopies = request.Copies ?? 0;
 
         try
         {
-            // Resolve logical printer if exists
-            var targetPrinter = request.PrinterName;
-            var logicalPrinter = _printerStore.GetById(request.PrinterName) ??
-                                 _printerStore.GetAll().FirstOrDefault(p => p.Name.Equals(request.PrinterName, StringComparison.OrdinalIgnoreCase));
-            
-            if (logicalPrinter != null && logicalPrinter.IsActive)
+            var resolvedPrinters = ResolvePrinters(request.PrinterName);
+            if (!resolvedPrinters.Any()) return BadRequest("No se especificaron impresoras válidas.");
+
+            bool allOk = true;
+            var targetPrinterNames = new List<string>();
+
+            foreach (var rp in resolvedPrinters)
             {
-                targetPrinter = logicalPrinter.PhysicalPrinter;
+                targetPrinterNames.Add(rp.Name);
+                
+                // Fallback prioritario: 
+                // 1. Copias específicas de la impresora física (si no es null)
+                // 2. Copias enviadas en el request (si no es 0 ni null)
+                // 3. 1 copia por defecto
+                int printerCopies = rp.Copies ?? (requestCopies > 0 ? requestCopies : 1);
+                
+                bool ok;
+                if (request.DataList != null && request.DataList.Count > 0)
+                {
+                    ok = await _renderer.PrintMultipleItemsAsync(glabelTemplate, request.DataList, rp.Name, printerCopies);
+                }
+                else
+                {
+                    ok = await _renderer.PrintToPrinterAsync(glabelTemplate, data, rp.Name, printerCopies);
+                }
+                if (!ok) allOk = false;
             }
 
-            bool ok;
-            if (request.DataList != null && request.DataList.Count > 0)
+            if (!allOk)
             {
-                ok = await _renderer.PrintMultipleItemsAsync(glabelTemplate, request.DataList, targetPrinter, copies);
+                return StatusCode(StatusCodes.Status502BadGateway, "Una o más impresiones fallaron.");
             }
-            else
-            {
-                ok = await _renderer.PrintToPrinterAsync(glabelTemplate, data, targetPrinter, copies);
-            }
-
-            if (!ok)
-            {
-                return StatusCode(StatusCodes.Status502BadGateway, "No se pudo completar la impresión.");
-            }
-            return Ok(new { printed = true, printer = targetPrinter, originalPrinter = request.PrinterName, copies });
+            return Ok(new { printed = true, printers = targetPrinterNames, originalPrinter = request.PrinterName, requestCopies });
         }
         catch (PlatformNotSupportedException ex)
         {
@@ -303,13 +311,8 @@ public sealed class LabelsController : ControllerBase
 
             if (logicalPrinter != null)
             {
-                // Usar impresora física real
-                request.PrinterName = logicalPrinter.IsActive
-                    ? logicalPrinter.PhysicalPrinter
-                    : request.PrinterName;
-
-                // Aplicar copias del printer si el request no las sobreescribe
-                if (request.Copies <= 1) request.Copies = logicalPrinter.Copies;
+                // Copias del printer si no vienen en el request
+                if ((request.Copies ?? 0) <= 1) request.Copies = logicalPrinter.Copies;
             }
         }
 
@@ -331,56 +334,66 @@ public sealed class LabelsController : ControllerBase
             var setup = doc.Root?.Element("setup");
             var printersAttr = setup?.Attribute("printers")?.Value;
             
-            var targetPrinters = new List<string>();
+            var resolvedPrinters = new List<PhysicalPrinterConfig>();
             if (!string.IsNullOrWhiteSpace(printersAttr))
             {
                 var names = printersAttr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 foreach (var name in names)
                 {
-                    var resolved = ResolvePrinter(name);
-                    targetPrinters.Add(resolved);
+                    resolvedPrinters.AddRange(ResolvePrinters(name));
                 }
             }
             else if (!string.IsNullOrWhiteSpace(request.PrinterName))
             {
-                targetPrinters.Add(ResolvePrinter(request.PrinterName));
+                resolvedPrinters.AddRange(ResolvePrinters(request.PrinterName));
             }
 
-            if (targetPrinters.Count == 0)
+            if (resolvedPrinters.Count == 0)
                 return BadRequest("No se especificó ninguna impresora válida.");
 
             bool allOk = true;
             int totalSent = 0;
 
-            foreach (var targetPrinter in targetPrinters)
+            var printedNames = new List<string>();
+            foreach (var rp in resolvedPrinters)
             {
-                if (request.DataList is { Count: > 0 } list)
-                {
-                    var globalData = request.Data ?? new Dictionary<string, string>();
-                    foreach (var itemData in list)
-                    {
-                        // Merge global data into item data (item data wins on conflict)
-                        var mergedData = new Dictionary<string, string>(globalData);
-                        foreach (var kv in itemData) mergedData[kv.Key] = kv.Value;
+                printedNames.Add(rp.Name);
+                int printerWidth = rp.PaperWidth ?? paperWidth;
+                
+                // Si el request tiene 0 o null copias, usamos el de la impresora.
+                // Si el request tiene > 0 copias, usamos ese, a menos que la impresora tenga su propio override.
+                int printerCopies = rp.Copies ?? ((request.Copies ?? 0) > 0 ? request.Copies!.Value : 1);
 
-                        var bytes = _ticketService.ProcessTicketXml(request.Xml, mergedData, paperWidth);
-                        if (!await RawPrintHelper.SendBytesToPrinterAsync(targetPrinter, bytes, "SaeTicket"))
+                for (int i = 0; i < printerCopies; i++)
+                {
+                    if (request.DataList is { Count: > 0 } list)
+                    {
+                        var globalData = request.Data ?? new Dictionary<string, string>();
+                        foreach (var itemData in list)
+                        {
+                            // Merge global data into item data (item data wins on conflict)
+                            var mergedData = new Dictionary<string, string>(globalData);
+                            foreach (var kv in itemData) mergedData[kv.Key] = kv.Value;
+
+                            var bytes = _ticketService.ProcessTicketXml(request.Xml, mergedData, printerWidth);
+                            if (!await RawPrintHelper.SendBytesToPrinterAsync(rp.Name, bytes, "SaeTicket"))
+                                allOk = false;
+                            totalSent++;
+                        }
+                    }
+                    else
+                    {
+                        var data = request.Data ?? new Dictionary<string, string>();
+                        var bytes = _ticketService.ProcessTicketXml(request.Xml, data, printerWidth);
+                        if (!await RawPrintHelper.SendBytesToPrinterAsync(rp.Name, bytes, "SaeTicket"))
                             allOk = false;
                         totalSent++;
                     }
                 }
-                else
-                {
-                    var data = request.Data ?? new Dictionary<string, string>();
-                    var bytes = _ticketService.ProcessTicketXml(request.Xml, data, paperWidth);
-                    if (!await RawPrintHelper.SendBytesToPrinterAsync(targetPrinter, bytes, "SaeTicket"))
-                        allOk = false;
-                    totalSent++;
-                }
             }
 
             if (!allOk) return StatusCode(StatusCodes.Status502BadGateway, "Una o más impresiones de tiquetes fallaron.");
-            return Ok(new { printed = true, type = "ticket", printers = targetPrinters, totalSent });
+            return Ok(new { printed = true, type = "ticket", printers = printedNames, totalSent });
         }
         catch (Exception ex)
         {
@@ -388,14 +401,16 @@ public sealed class LabelsController : ControllerBase
         }
     }
 
-    private string ResolvePrinter(string printerName)
+    private IEnumerable<PhysicalPrinterConfig> ResolvePrinters(string printerName)
     {
         var logicalPrinter = _printerStore.GetById(printerName) ??
                              _printerStore.GetAll().FirstOrDefault(p => p.Name.Equals(printerName, StringComparison.OrdinalIgnoreCase));
 
-        return (logicalPrinter != null && logicalPrinter.IsActive)
-            ? logicalPrinter.PhysicalPrinter
-            : printerName;
+        if (logicalPrinter != null && logicalPrinter.IsActive && logicalPrinter.Printers?.Count > 0)
+        {
+            return logicalPrinter.Printers;
+        }
+        return new[] { new PhysicalPrinterConfig { Name = printerName } };
     }
 }
 

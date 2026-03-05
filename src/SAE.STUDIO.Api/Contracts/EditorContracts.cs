@@ -61,3 +61,25 @@ public sealed class UpdateEditorSettingRequest
     public string Key { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
 }
+
+public sealed class EditorTemplateDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Kind { get; set; } = "sae";
+    public string Icon { get; set; } = "📄";
+    public string Description { get; set; } = string.Empty;
+    public string Xml { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+public sealed class UpsertEditorTemplateRequest
+{
+    public string? Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Kind { get; set; } = "sae";
+    public string Icon { get; set; } = "📄";
+    public string Description { get; set; } = string.Empty;
+    public string Xml { get; set; } = string.Empty;
+}
