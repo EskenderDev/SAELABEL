@@ -14,9 +14,18 @@ public class SaeTicketsTemplateService
             throw new InvalidDataException("El XML no es un formato saetickets válido.");
 
         var setup = root.Element("setup");
-        int width = paperWidthOverride > 0
-            ? (paperWidthOverride == 58 ? 32 : 42)
-            : ((int?)setup?.Attribute("width") ?? 42);
+        int width;
+        if (paperWidthOverride > 0)
+        {
+            // If we have an override (mm), map it to char count
+            // 58mm-60mm range -> 32 chars, else 42 chars
+            width = paperWidthOverride <= 65 ? 32 : 42;
+        }
+        else
+        {
+            // Use XML setup width (which is character count)
+            width = (int?)setup?.Attribute("width") ?? 42;
+        }
 
         var builder = new TicketBuilder(width);
 
@@ -40,14 +49,30 @@ public class SaeTicketsTemplateService
         {
             case "text":
             {
-                builder.SetAlignment(ParseAlign(cmd.Attribute("align")?.Value));
-                RenderRichText(builder, ReplaceVars(cmd.Value, data), (bool?)cmd.Attribute("bold") ?? false, ParseFontSize(cmd.Attribute("size")?.Value), (bool?)cmd.Attribute("extraBold") ?? false);
-                builder.NewLine();
+                var alignment = ParseAlign(cmd.Attribute("align")?.Value);
+                var isBold = (bool?)cmd.Attribute("bold") ?? false;
+                var fontSize = ParseFontSize(cmd.Attribute("size")?.Value);
+                var isExtraBold = (bool?)cmd.Attribute("extraBold") ?? false;
+                var text = ReplaceVars(cmd.Value, data);
+
+                // Simple word wrap implementation for rich text (ignoring tags for splitting, but respecting their width)
+                // For now, we split by lines and then wrap each line.
+                var rawLines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                foreach (var rl in rawLines)
+                {
+                    var lines = WrapLine(rl, width, fontSize);
+                    foreach (var line in lines)
+                    {
+                        RenderRichText(builder, PadStr(line, width, alignment, fontSize), isBold, fontSize, isExtraBold);
+                        builder.NewLine();
+                    }
+                }
                 break;
             }
 
             case "separator":
             {
+                var align = ParseAlign(cmd.Attribute("align")?.Value);
                 char c = (cmd.Attribute("char")?.Value ?? "-")[0];
                 builder.Separator(c);
                 break;
@@ -69,10 +94,43 @@ public class SaeTicketsTemplateService
                 var value = ReplaceVars(cmd.Attribute("value")?.Value ?? "0",     data);
                 bool bold = (bool?)cmd.Attribute("bold") ?? false;
                 bool extraBold = (bool?)cmd.Attribute("extraBold") ?? false;
-                builder.SetAlignment(TicketAlignment.Left);
-                RenderRichText(builder, PadStr(label, width - value.Length, TicketAlignment.Left, PrinterFontSize.Normal), bold, PrinterFontSize.Normal, extraBold);
-                RenderRichText(builder, value, bold, PrinterFontSize.Normal, extraBold);
-                builder.NewLine();
+                var align = ParseAlign(cmd.Attribute("align")?.Value);
+                
+                if (align == TicketAlignment.Right || align == TicketAlignment.Center)
+                {
+                    // Render as a single adjacent string for Right/Center alignments
+                    string combined = $"{label.TrimEnd()} {value.TrimStart()}";
+                    var lines = WrapLine(combined, width, PrinterFontSize.Normal);
+                    foreach (var line in lines)
+                    {
+                        RenderRichText(builder, PadStr(line, width, align, PrinterFontSize.Normal), bold, PrinterFontSize.Normal, extraBold);
+                        builder.NewLine();
+                    }
+                }
+                else
+                {
+                    // Default / Left alignment: Spread label and value to opposite sides
+                    int valueLen = GetRealLength(value, PrinterFontSize.Normal);
+                    int labelWidth = width - valueLen;
+                    if (labelWidth < 5) labelWidth = 5; // minimum label space
+
+                    var labelLines = WrapLine(label, labelWidth, PrinterFontSize.Normal);
+
+                    for (int i = 0; i < labelLines.Count; i++)
+                    {
+                        string line = labelLines[i];
+                        if (i == 0)
+                        {
+                            RenderRichText(builder, PadStr(line, labelWidth, TicketAlignment.Left, PrinterFontSize.Normal), bold, PrinterFontSize.Normal, extraBold);
+                            RenderRichText(builder, value, bold, PrinterFontSize.Normal, extraBold);
+                        }
+                        else
+                        {
+                            RenderRichText(builder, PadStr(line, width, TicketAlignment.Left, PrinterFontSize.Normal), bold, PrinterFontSize.Normal, extraBold);
+                        }
+                        builder.NewLine();
+                    }
+                }
                 break;
             }
 
@@ -83,7 +141,10 @@ public class SaeTicketsTemplateService
                 if (int.TryParse(sizeAttr, out var szVal))
                     moduleSize = szVal > 20 ? Math.Max(1, Math.Min(16, szVal / 16)) : szVal;
 
-                builder.QrCode(ReplaceVars(cmd.Value, data), ParseAlign(cmd.Attribute("align")?.Value), moduleSize);
+                var alignValue = cmd.Attribute("align")?.Value;
+                var qrAlign = string.IsNullOrEmpty(alignValue) ? TicketAlignment.Center : ParseAlign(alignValue);
+
+                builder.QrCode(ReplaceVars(cmd.Value, data), qrAlign, moduleSize);
                 break;
             }
 
@@ -101,8 +162,9 @@ public class SaeTicketsTemplateService
             {
                 var expr = ReplaceVars(cmd.Attribute("expr")?.Value ?? "", data);
                 if (IsFalsy(expr)) break;
-                builder.SetAlignment(ParseAlign(cmd.Attribute("align")?.Value));
-                RenderRichText(builder, ReplaceVars(cmd.Value, data), (bool?)cmd.Attribute("bold") ?? false, PrinterFontSize.Normal, (bool?)cmd.Attribute("extraBold") ?? false);
+                var align = ParseAlign(cmd.Attribute("align")?.Value);
+                var text = ReplaceVars(cmd.Value, data);
+                RenderRichText(builder, PadStr(text, width, align, PrinterFontSize.Normal), (bool?)cmd.Attribute("bold") ?? false, PrinterFontSize.Normal, (bool?)cmd.Attribute("extraBold") ?? false);
                 builder.NewLine();
                 break;
             }
@@ -114,8 +176,8 @@ public class SaeTicketsTemplateService
                 var cmdElem = !IsFalsy(expr) ? cmd.Element("then") : cmd.Element("else");
                 if (cmdElem != null)
                 {
-                    builder.SetAlignment(align);
-                    RenderRichText(builder, ReplaceVars(cmdElem.Value, data), false, PrinterFontSize.Normal, (bool?)cmd.Attribute("extraBold") ?? false);
+                    var text = ReplaceVars(cmdElem.Value, data);
+                    RenderRichText(builder, PadStr(text, width, align, PrinterFontSize.Normal), false, PrinterFontSize.Normal, (bool?)cmd.Attribute("extraBold") ?? false);
                     builder.NewLine();
                 }
                 break;
@@ -140,6 +202,7 @@ public class SaeTicketsTemplateService
                     Size   = ParseFontSize(c.Attribute("size")?.Value)
                 }).ToList();
 
+                var align = ParseAlign(cmd.Attribute("align")?.Value);
                 int sep    = Math.Max(0, cols.Count - 1);
                 int fixedW = cols.Where(c => c.WidthS != "auto").Sum(c => int.TryParse(c.WidthS, out var w) ? w : 0);
                 int autoN  = cols.Count(c => c.WidthS == "auto");
@@ -161,7 +224,6 @@ public class SaeTicketsTemplateService
                 // Header row
                 if (header)
                 {
-                    builder.SetAlignment(TicketAlignment.Left);
                     for (int i = 0; i < cols.Count; i++)
                     {
                         var c = cols[i];
@@ -184,31 +246,46 @@ public class SaeTicketsTemplateService
                     if (childField != null && data.TryGetValue($"{listVar}_{i}_{childField}", out var cv))
                         rowData[childField] = cv;
 
-                    builder.SetAlignment(TicketAlignment.Left);
+                    // Wrap each column's text
+                    var columnWrappedLines = new List<List<string>>();
+                    int maxLinesInRow = 1;
+
                     for (int ci = 0; ci < cols.Count; ci++)
                     {
                         var col = cols[ci];
-                        if (!string.IsNullOrEmpty(col.ShowIf) && IsFalsy(ReplaceVars(col.ShowIf, rowData)))
+                        string val = "";
+                        if (string.IsNullOrEmpty(col.ShowIf) || !IsFalsy(ReplaceVars(col.ShowIf, rowData)))
                         {
-                            builder.TextPart(new string(' ', widths[ci]));
+                            val = ReplaceVars(rowData.TryGetValue($"{listVar}_{i}_{col.Field}", out var fv) ? fv : "", rowData);
                         }
-                        else
-                        {
-                            var val = rowData.TryGetValue($"{listVar}_{i}_{col.Field}", out var fv) ? fv : "";
-                            RenderRichText(builder, PadStr(ReplaceVars(val, rowData), widths[ci], col.Align, col.Size), col.Bold, col.Size, col.ExtraBold);
-                        }
-                        if (ci < cols.Count - 1) builder.TextPart(" ");
+                        
+                        var wrapped = WrapLine(val, widths[ci], col.Size);
+                        columnWrappedLines.Add(wrapped);
+                        if (wrapped.Count > maxLinesInRow) maxLinesInRow = wrapped.Count;
                     }
-                    builder.NewLine();
 
-                    // Optional child field row - split by comma for multi-line
+                    // Render all lines for this row
+                    for (int lineIdx = 0; lineIdx < maxLinesInRow; lineIdx++)
+                    {
+                        for (int ci = 0; ci < cols.Count; ci++)
+                        {
+                            var col = cols[ci];
+                            var lines = columnWrappedLines[ci];
+                            var lineText = lineIdx < lines.Count ? lines[lineIdx] : "";
+                            
+                            RenderRichText(builder, PadStr(lineText, widths[ci], col.Align, col.Size), col.Bold, col.Size, col.ExtraBold);
+                            if (ci < cols.Count - 1) builder.TextPart(" ");
+                        }
+                        builder.NewLine();
+                    }
+
+                    // Optional child field row
                     if (!string.IsNullOrEmpty(childField) && rowData.TryGetValue(childField, out var childVal) && !string.IsNullOrEmpty(childVal))
                     {
                         var parts = childVal.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         int indent = widths.Take(childIndentCol).Sum() + childIndentCol;
                         foreach (var part in parts)
                         {
-                            builder.SetAlignment(TicketAlignment.Left);
                             builder.TextPart(new string(' ', indent));
                             RenderRichText(builder, ReplaceVars(part, rowData), false, PrinterFontSize.Normal);
                             builder.NewLine();
@@ -258,6 +335,81 @@ public class SaeTicketsTemplateService
             RenderRichText(builder, suffix, baseBold, size, extraBold);
     }
 
+    private List<string> WrapLine(string text, int maxWidth, PrinterFontSize baseSize)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrEmpty(text))
+        {
+            result.Add("");
+            return result;
+        }
+
+        // Very basic wrap: we look for spaces but if a word is too long we cut it.
+        // We simplified it by not perfectly splitting rich tags mid-word, 
+        // but it's much better than overflowing.
+        string currentLine = "";
+        int currentLineLen = 0;
+        var words = text.Split(' ');
+
+        foreach (var word in words)
+        {
+            int wordLen = GetRealLength(word, baseSize);
+            int spaceLen = currentLineLen > 0 ? GetRealLength(" ", baseSize) : 0;
+
+            if (currentLineLen + spaceLen + wordLen <= maxWidth)
+            {
+                if (currentLineLen > 0)
+                {
+                    currentLine += " ";
+                    currentLineLen += spaceLen;
+                }
+                currentLine += word;
+                currentLineLen += wordLen;
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(currentLine))
+                    result.Add(currentLine);
+                
+                // If the word itself is longer than maxWidth, we must force wrap it
+                if (wordLen > maxWidth)
+                {
+                    string remainingWord = word;
+                    while (GetRealLength(remainingWord, baseSize) > maxWidth)
+                    {
+                        // Find how many chars fit
+                        int charsThatFit = 0;
+                        int currentMeasured = 0;
+                        for (int i = 1; i <= remainingWord.Length; i++)
+                        {
+                            int len = GetRealLength(remainingWord.Substring(0, i), baseSize);
+                            if (len > maxWidth) break;
+                            charsThatFit = i;
+                            currentMeasured = len;
+                        }
+                        
+                        if (charsThatFit == 0) charsThatFit = 1; // force at least one
+                        
+                        result.Add(remainingWord.Substring(0, charsThatFit));
+                        remainingWord = remainingWord.Substring(charsThatFit);
+                    }
+                    currentLine = remainingWord;
+                    currentLineLen = GetRealLength(currentLine, baseSize);
+                }
+                else
+                {
+                    currentLine = word;
+                    currentLineLen = wordLen;
+                }
+            }
+        }
+
+        if (!string.IsNullOrEmpty(currentLine))
+            result.Add(currentLine);
+
+        return result;
+    }
+
     private static int GetRealLength(string s, PrinterFontSize size = PrinterFontSize.Normal)
     {
         if (string.IsNullOrEmpty(s)) return 0;
@@ -295,11 +447,18 @@ public class SaeTicketsTemplateService
         if (realLen >= w) return s;
         
         int diff = w - realLen;
+        
+        // If size is Large or ExtraLarge, spaces also double their width.
+        // We must divide the padding by 2 to prevent shifting columns too much.
+        int multiplier = (size == PrinterFontSize.Large || size == PrinterFontSize.ExtraLarge) ? 2 : 1;
+        int spaceCount = diff / multiplier;
+        int spaceSecond = (diff - (spaceCount * multiplier)) / multiplier; // handle rounding if odd width
+
         return a switch
         {
-            TicketAlignment.Center => new string(' ', diff / 2) + s + new string(' ', diff - (diff / 2)),
-            TicketAlignment.Right  => new string(' ', diff) + s,
-            _                      => s + new string(' ', diff),
+            TicketAlignment.Center => new string(' ', spaceCount / 2) + s + new string(' ', (spaceCount - (spaceCount / 2))),
+            TicketAlignment.Right  => new string(' ', spaceCount) + s,
+            _                      => s + new string(' ', spaceCount),
         };
     }
 
@@ -315,10 +474,16 @@ public class SaeTicketsTemplateService
         return System.Text.RegularExpressions.Regex.Replace(input, @"\$\{([^}]+)\}", m =>
         {
             var key = m.Groups[1].Value;
+
+            // Aliases for common variables
+            if (key == "DATE") key = "!date";
+            if (key == "TIME") key = "!time";
+            if (key == "DATETIME") key = "!datetime";
+
             if (key.StartsWith("!"))
             {
                 var lowerKey = key.ToLower();
-                
+
                 // Support for ${!date:format}
                 if (lowerKey.StartsWith("!date:") && key.Length > 6)
                 {
@@ -354,6 +519,7 @@ public class SaeTicketsTemplateService
 
     private PrinterFontSize ParseFontSize(string? val) => val?.ToLower() switch
     {
+        "small"       => PrinterFontSize.Small,
         "medium"      => PrinterFontSize.Medium,
         "large"       => PrinterFontSize.Large,
         "extra-large" => PrinterFontSize.ExtraLarge,

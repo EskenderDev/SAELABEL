@@ -12,31 +12,67 @@ public class PhysicalPrinterConfig
     
     [JsonPropertyName("paperWidth")]
     public int? PaperWidth { get; set; }
+
+    [JsonPropertyName("paperHeight")]
+    public int? PaperHeight { get; set; }
 }
 
 public class LogicalPrinterDto
 {
+    [JsonPropertyName("id")]
     public string Id { get; set; } = string.Empty;
+    
+    [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
+    
+    [JsonPropertyName("description")]
     public string? Description { get; set; }
+    
+    [JsonPropertyName("printers")]
     public List<PhysicalPrinterConfig> Printers { get; set; } = new();
+    
+    [JsonPropertyName("isActive")]
     public bool IsActive { get; set; } = true;
-    /// <summary>Número de copias por impresión (default 1).</summary>
+    
+    [JsonPropertyName("copies")]
     public int Copies { get; set; } = 1;
-    /// <summary>Ancho de papel en mm: 58 o 80.</summary>
-    public int PaperWidth { get; set; } = 80;
-    /// <summary>Tipo de medio: "receipt" | "label". Ayuda al servidor local a filtrar.</summary>
+    
+    [JsonPropertyName("paperWidth")]
+    public int? PaperWidth { get; set; }
+
+    [JsonPropertyName("paperHeight")]
+    public int? PaperHeight { get; set; }
+    
+    [JsonPropertyName("mediaType")]
     public string MediaType { get; set; } = "receipt";
 }
 
 public class UpsertLogicalPrinterRequest
 {
+    [JsonPropertyName("id")]
     public string? Id { get; set; }
+    
+    [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
+    
+    [JsonPropertyName("description")]
     public string? Description { get; set; }
+    
+    [JsonPropertyName("printers")]
     public List<PhysicalPrinterConfig> Printers { get; set; } = new();
+    
+    [JsonPropertyName("isActive")]
     public bool IsActive { get; set; } = true;
+    
+    [JsonPropertyName("copies")]
     public int Copies { get; set; } = 1;
-    public int PaperWidth { get; set; } = 80;
+    
+    [JsonPropertyName("paperWidth")]
+    public int? PaperWidth { get; set; }
+
+    [JsonPropertyName("paperHeight")]
+    public int? PaperHeight { get; set; }
+    
+    [JsonPropertyName("mediaType")]
     public string MediaType { get; set; } = "receipt";
 }

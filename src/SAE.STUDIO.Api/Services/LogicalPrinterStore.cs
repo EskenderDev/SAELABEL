@@ -9,13 +9,22 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
     private readonly string _connectionString;
     private readonly object _sync = new();
 
-    public LogicalPrinterStore(IWebHostEnvironment env)
+    public LogicalPrinterStore()
     {
-        var dir = Path.Combine(env.ContentRootPath, "App_Data");
+        // Usar AppContext.BaseDirectory para que funcione tanto en debug como en servicio
+        var dir = Path.Combine(AppContext.BaseDirectory, "App_Data");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "editor.db");
         _connectionString = $"Data Source={dbPath}";
-        EnsureSchema();
+        
+        try 
+        {
+            EnsureSchema();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LogicalPrinterStore] Error initializing schema: {ex.Message}");
+        }
     }
 
     // ── Mapper ─────────────────────────────────────────────────────
@@ -54,26 +63,34 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
             Printers       = printers,
             IsActive       = r.GetInt32(4) == 1,
             Copies         = r.IsDBNull(5) ? 1  : r.GetInt32(5),
-            PaperWidth     = r.IsDBNull(6) ? 80 : r.GetInt32(6),
-            MediaType      = r.IsDBNull(7) ? "receipt" : r.GetString(7)
+            PaperWidth     = r.IsDBNull(6) || r.GetInt32(6) == 0 ? null : r.GetInt32(6),
+            PaperHeight    = r.IsDBNull(7) || r.GetInt32(7) == 0 ? null : r.GetInt32(7),
+            MediaType      = r.IsDBNull(8) ? "receipt" : r.GetString(8)
         };
     }
 
     private const string Cols =
-        "id, name, description, physical_printer, is_active, copies, paper_width, media_type";
+        "id, name, description, physical_printer, is_active, copies, paper_width, paper_height, media_type";
 
     // ── CRUD ───────────────────────────────────────────────────────
     public IReadOnlyList<LogicalPrinterDto> GetAll()
     {
-        lock (_sync)
+        try 
         {
-            using var cn = Open();
-            using var cmd = cn.CreateCommand();
-            cmd.CommandText = $"SELECT {Cols} FROM editor_logical_printers ORDER BY name COLLATE NOCASE;";
-            using var r = cmd.ExecuteReader();
-            var list = new List<LogicalPrinterDto>();
-            while (r.Read()) list.Add(Map(r));
-            return list;
+            lock (_sync)
+            {
+                using var cn = Open();
+                using var cmd = cn.CreateCommand();
+                cmd.CommandText = $"SELECT {Cols} FROM editor_logical_printers ORDER BY name COLLATE NOCASE;";
+                using var r = cmd.ExecuteReader();
+                var list = new List<LogicalPrinterDto>();
+                while (r.Read()) list.Add(Map(r));
+                return list;
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Error al listar impresoras lógicas: {ex.Message}", ex);
         }
     }
 
@@ -111,7 +128,8 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
         if (request.Printers == null || request.Printers.Count == 0) throw new InvalidDataException("At least one printer is required.");
 
         var copies     = Math.Max(1, request.Copies);
-        var paperWidth = request.PaperWidth is 58 or 80 ? request.PaperWidth : 80;
+        var paperWidth = request.PaperWidth; // Permitir cualquier valor o null
+        var paperHeight = request.PaperHeight; // Altura para escalado
         var mediaType  = request.MediaType?.Trim().ToLowerInvariant() == "label" ? "label" : "receipt";
 
         lock (_sync)
@@ -121,8 +139,8 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
             using var cmd = cn.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO editor_logical_printers
-                    (id, name, description, physical_printer, is_active, copies, paper_width, media_type)
-                VALUES ($id, $name, $desc, $physical, $active, $copies, $pw, $mt)
+                    (id, name, description, physical_printer, is_active, copies, paper_width, paper_height, media_type)
+                VALUES ($id, $name, $desc, $physical, $active, $copies, $pw, $ph, $mt)
                 ON CONFLICT(id) DO UPDATE SET
                     name             = excluded.name,
                     description      = excluded.description,
@@ -130,6 +148,7 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
                     is_active        = excluded.is_active,
                     copies           = excluded.copies,
                     paper_width      = excluded.paper_width,
+                    paper_height     = excluded.paper_height,
                     media_type       = excluded.media_type;
                 """;
             cmd.Parameters.AddWithValue("$id",       id);
@@ -138,7 +157,8 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
             cmd.Parameters.AddWithValue("$physical", JsonSerializer.Serialize(request.Printers));
             cmd.Parameters.AddWithValue("$active",   request.IsActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$copies",   copies);
-            cmd.Parameters.AddWithValue("$pw",       paperWidth);
+            cmd.Parameters.AddWithValue("$pw",       paperWidth ?? 0);
+            cmd.Parameters.AddWithValue("$ph",       paperHeight ?? 0);
             cmd.Parameters.AddWithValue("$mt",       mediaType);
             cmd.ExecuteNonQuery();
 
@@ -148,7 +168,7 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
                 Description = request.Description?.Trim(),
                 Printers = request.Printers,
                 IsActive = request.IsActive,
-                Copies = copies, PaperWidth = paperWidth, MediaType = mediaType
+                Copies = copies, PaperWidth = paperWidth, PaperHeight = paperHeight, MediaType = mediaType
             };
         }
     }
@@ -195,6 +215,7 @@ public sealed class LogicalPrinterStore : ILogicalPrinterStore
             // Additive migration — safe with existing databases
             AddColIfMissing(cn, "editor_logical_printers", "copies",      "INTEGER NOT NULL DEFAULT 1");
             AddColIfMissing(cn, "editor_logical_printers", "paper_width", "INTEGER NOT NULL DEFAULT 80");
+            AddColIfMissing(cn, "editor_logical_printers", "paper_height","INTEGER NOT NULL DEFAULT 0");
             AddColIfMissing(cn, "editor_logical_printers", "media_type",  "TEXT NOT NULL DEFAULT 'receipt'");
         }
     }

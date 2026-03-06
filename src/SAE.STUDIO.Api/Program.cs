@@ -216,10 +216,10 @@ internal sealed class UnsupportedLabelRenderer : ILabelRenderer
     public Task<string> GenerateZplWithCopiesAsync(SAE.STUDIO.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, int copies = 1)
         => throw NotSupported();
 
-    public Task<bool> PrintToPrinterAsync(SAE.STUDIO.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies = 1)
+    public Task<bool> PrintToPrinterAsync(SAE.STUDIO.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies = 1, float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         => throw NotSupported();
 
-    public Task<bool> PrintMultipleItemsAsync(SAE.STUDIO.Core.Labels.Modelos.SaeLabelsTemplate template, IEnumerable<Dictionary<string, string>> itemsData, string printerName, int copiesPerItem = 1)
+    public Task<bool> PrintMultipleItemsAsync(SAE.STUDIO.Core.Labels.Modelos.SaeLabelsTemplate template, IEnumerable<Dictionary<string, string>> itemsData, string printerName, int copiesPerItem = 1, float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         => throw NotSupported();
 
     public Task<byte[]> RenderToImageAsync(SAE.STUDIO.Core.Labels.Modelos.SaeLabelsTemplate template, Dictionary<string, string> data, string format = "png")

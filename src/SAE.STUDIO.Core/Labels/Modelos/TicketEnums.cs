@@ -10,6 +10,7 @@ public enum TicketAlignment
 public enum PrinterFontSize
 {
     Normal = 0,
+    Small = 1,
     Medium = 16,
     Large = 32,
     ExtraLarge = 48

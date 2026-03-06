@@ -9,6 +9,12 @@ public class TicketBuilder
     private readonly int _width;
     private readonly Encoding _encoding;
 
+    static TicketBuilder()
+    {
+        // Required for non-standard encodings in .NET Core+
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
     // ESC/POS Commands
     private static readonly byte[] Initialize = { 27, 64 };
     private static readonly byte[] BoldOn = { 27, 69, 1 };
@@ -25,8 +31,16 @@ public class TicketBuilder
     public TicketBuilder(int width = 40, Encoding? encoding = null)
     {
         _width = width;
-        _encoding = encoding ?? Encoding.UTF8;
+        // Use CP850 for Latin/Western characters which is standard for ESC/POS
+        _encoding = encoding ?? Encoding.GetEncoding(850);
+        
         _buffer.AddRange(Initialize);
+        
+        // Select Code Page 850 (Latin 1) - ESC t 2
+        _buffer.AddRange(new byte[] { 27, 116, 2 });
+        
+        // Globally center the 32/42 char software block on the physical paper
+        SetAlignment(TicketAlignment.Center);
     }
 
     private void Append(string text) => _buffer.AddRange(_encoding.GetBytes(text));
@@ -92,11 +106,14 @@ public class TicketBuilder
 
     public TicketBuilder Item(string description, string quantity, string? price = null, string? total = null)
     {
-        // Simplificación para el parser XML
         string qty = quantity.PadRight(6);
-        string totalTxt = !string.IsNullOrEmpty(total) ? total.PadLeft(10) : "";
+        string totalPart = !string.IsNullOrEmpty(total) ? total : (price ?? "");
+        string totalTxt = !string.IsNullOrEmpty(totalPart) ? totalPart.PadLeft(10) : "";
         
-        var availableWidth = _width - (!string.IsNullOrEmpty(price) ? 18 : 6);
+        int rightSpace = !string.IsNullOrEmpty(totalPart) ? 10 : 0;
+        int availableWidth = _width - 6 - rightSpace;
+        if (availableWidth < 5) availableWidth = 5;
+
         var lines = WrapText(description, availableWidth);
         
         for (int i = 0; i < lines.Count; i++)
@@ -106,13 +123,15 @@ public class TicketBuilder
             {
                 Append(qty);
                 Append(line.PadRight(availableWidth));
-                if (!string.IsNullOrEmpty(total)) Append(totalTxt);
+                if (rightSpace > 0) Append(totalTxt);
                 AppendLine();
             }
             else
             {
                 Append(new string(' ', 6));
-                AppendLine(line);
+                Append(line.PadRight(availableWidth));
+                if (rightSpace > 0) Append(new string(' ', 10));
+                AppendLine();
             }
         }
         
@@ -150,8 +169,8 @@ public class TicketBuilder
         byte pL = (byte)(storeLen % 256);
         byte pH = (byte)(storeLen / 256);
 
-        if (alignment == TicketAlignment.Center) _buffer.AddRange(AlignCenter);
-        else if (alignment == TicketAlignment.Right) _buffer.AddRange(AlignRight);
+        // ALWAYS explicitly send alignment before QR. Generic printers often "forget" global alignment for barcodes.
+        SetAlignment(alignment);
 
         _buffer.AddRange(new byte[] { 29, 40, 107, 4, 0, 49, 65, 50, 0 });
         _buffer.AddRange(new byte[] { 29, 40, 107, 3, 0, 49, 67, (byte)Math.Max(1, Math.Min(16, moduleSize)) });
@@ -160,7 +179,7 @@ public class TicketBuilder
         _buffer.AddRange(dataBytes);
         _buffer.AddRange(new byte[] { 29, 40, 107, 3, 0, 49, 81, 48 });
 
-        if (alignment != TicketAlignment.Left) _buffer.AddRange(AlignLeft);
+        if (alignment != TicketAlignment.Center) SetAlignment(TicketAlignment.Center);
         
         Feed(1);
         return this;
@@ -177,6 +196,8 @@ public class TicketBuilder
     private static List<string> WrapText(string text, int width)
     {
         if (string.IsNullOrEmpty(text)) return new List<string> { "" };
+        if (width <= 0) return new List<string> { text };
+
         var lines = new List<string>();
         for (int i = 0; i < text.Length; i += width)
         {

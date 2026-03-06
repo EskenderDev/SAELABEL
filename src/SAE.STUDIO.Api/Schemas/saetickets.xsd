@@ -17,6 +17,7 @@
 
   <xs:simpleType name="FontSize">
     <xs:restriction base="xs:string">
+      <xs:enumeration value="small" />
       <xs:enumeration value="normal" />
       <xs:enumeration value="medium" />
       <xs:enumeration value="large" />
@@ -38,6 +39,7 @@
 
   <xs:complexType name="SeparatorCommand">
     <xs:attribute name="char" type="xs:string" default="-" />
+    <xs:attribute name="align" type="Alignment" default="left" />
     <xs:attributeGroup ref="CommonAttributes" />
   </xs:complexType>
 
@@ -46,6 +48,7 @@
     <xs:attribute name="quantity" type="xs:string" use="required" />
     <xs:attribute name="price" type="xs:string" />
     <xs:attribute name="total" type="xs:string" />
+    <xs:attribute name="align" type="Alignment" default="left" />
     <xs:attributeGroup ref="CommonAttributes" />
   </xs:complexType>
 
@@ -54,6 +57,7 @@
     <xs:attribute name="value" type="xs:string" use="required" />
     <xs:attribute name="bold" type="xs:boolean" default="false" />
     <xs:attribute name="extraBold" type="xs:boolean" default="false" />
+    <xs:attribute name="align" type="Alignment" default="left" />
     <xs:attributeGroup ref="CommonAttributes" />
   </xs:complexType>
 
@@ -113,6 +117,7 @@
     <xs:attribute name="header" type="xs:boolean" default="true" />
     <xs:attribute name="childField" type="xs:string" use="optional" />
     <xs:attribute name="childIndentCol" type="xs:int" default="0" />
+    <xs:attribute name="align" type="Alignment" default="left" />
     <xs:attributeGroup ref="CommonAttributes" />
   </xs:complexType>
 

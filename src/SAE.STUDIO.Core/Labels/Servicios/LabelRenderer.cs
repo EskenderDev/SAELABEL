@@ -59,7 +59,7 @@ namespace SAE.STUDIO.Core.Labels.Servicios
             });
         }
 
-        public async Task<bool> PrintToPrinterAsync(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
+        public async Task<bool> PrintToPrinterAsync(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies, float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         {
             try
             {
@@ -73,12 +73,12 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                     // Impresión nativa de Windows (GDI+)
                     if (Environment.OSVersion.Platform == PlatformID.Win32NT)
                     {
-                        return PrintWithWindowsNative(template, data, printerName, copies);
+                        return PrintWithWindowsNative(template, data, printerName, copies, hardwareWidthMm, hardwareHeightMm);
                     }
                     else
                     {
                         // Fallback para Linux/Mac usando lp (requiere configuración)
-                        return await PrintWithSystemCommand(template, data, printerName, copies);
+                        return await PrintWithSystemCommand(template, data, printerName, copies, hardwareWidthMm, hardwareHeightMm);
                     }
                 }
             }
@@ -93,13 +93,14 @@ namespace SAE.STUDIO.Core.Labels.Servicios
             SaeLabelsTemplate template,
             IEnumerable<Dictionary<string, string>> itemsData,
             string printerName,
-            int copiesPerItem = 1)
+            int copiesPerItem = 1,
+            float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         {
             try
             {
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                 {
-                    return PrintBatchWithWindowsNative(template, itemsData, printerName, copiesPerItem);
+                    return PrintBatchWithWindowsNative(template, itemsData, printerName, copiesPerItem, hardwareWidthMm, hardwareHeightMm);
                 }
                 else
                 {
@@ -117,7 +118,7 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                             itemsProcessed,
                             itemsProcessed); // Propagar itemsProcessed como currentPage también para el fallback
 
-                        await PrintToPrinterAsync(template, processedData, printerName, copiesPerItem);
+                        await PrintToPrinterAsync(template, processedData, printerName, copiesPerItem, hardwareWidthMm, hardwareHeightMm);
                     }
                     return true;
                 }
@@ -300,7 +301,7 @@ namespace SAE.STUDIO.Core.Labels.Servicios
 
         #region Impresión Nativa (Windows)
 
-        private bool PrintWithWindowsNative(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
+        private bool PrintWithWindowsNative(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies, float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         {
             try
             {
@@ -318,8 +319,13 @@ namespace SAE.STUDIO.Core.Labels.Servicios
 
                     // Configurar el tamaño del papel dinámicamente según el template
                     // Centésimas de pulgada (hunderths of an inch)
-                    int paperWidth = (int)Math.Round(template.LabelRectangle.Width / 72.0 * 100.0);
-                    int paperHeight = (int)Math.Round(template.LabelRectangle.Height / 72.0 * 100.0);
+                    int paperWidth = hardwareWidthMm.HasValue 
+                        ? (int)Math.Round((hardwareWidthMm.Value / 25.4) * 100.0)
+                        : (int)Math.Round(template.LabelRectangle.Width / 72.0 * 100.0);
+                        
+                    int paperHeight = hardwareHeightMm.HasValue
+                        ? (int)Math.Round((hardwareHeightMm.Value / 25.4) * 100.0)
+                        : (int)Math.Round(template.LabelRectangle.Height / 72.0 * 100.0);
                     
                     var customSize = new PaperSize("Custom Label", paperWidth, paperHeight);
                     pd.DefaultPageSettings.PaperSize = customSize;
@@ -340,8 +346,13 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                         float printerDpiY = g.DpiY;
 
                         // Calculamos el tamaño final en píxeles reales de la impresora
-                        float finalWidthPx = (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
-                        float finalHeightPx = (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
+                        float finalWidthPx = hardwareWidthMm.HasValue
+                            ? (float)((hardwareWidthMm.Value / 25.4) * printerDpiX)
+                            : (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
+                            
+                        float finalHeightPx = hardwareHeightMm.HasValue
+                            ? (float)((hardwareHeightMm.Value / 25.4) * printerDpiY)
+                            : (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
 
                         // Renderizar internamente a 300 DPI (calidad)
                         float renderDpi = 300f;
@@ -357,9 +368,23 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                         g.SmoothingMode = SmoothingMode.HighQuality;
                         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-                        // Dibujar desde (0,0) ocupando el tamaño calculado
-                        // Esto ignora el centrado fallido y usa el área real definida por PaperSize
-                        g.DrawImage(highResLabel, 0, 0, finalWidthPx, finalHeightPx);
+                        // Calculamos el factor de escala proporcional (Dynamic Scaling)
+                        float templateWidthPx = (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
+                        float templateHeightPx = (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
+                        
+                        float scaleX = finalWidthPx / templateWidthPx;
+                        float scaleY = finalHeightPx / templateHeightPx;
+                        float scale = Math.Min(scaleX, scaleY);
+                        
+                        float drawWidth = templateWidthPx * scale;
+                        float drawHeight = templateHeightPx * scale;
+                        
+                        // Centramos el dibujo en los limites del hardware
+                        float drawX = (finalWidthPx - drawWidth) / 2f;
+                        float drawY = (finalHeightPx - drawHeight) / 2f;
+
+                        // Dibujar desde la posición calculada con escala proporcional
+                        g.DrawImage(highResLabel, drawX, drawY, drawWidth, drawHeight);
                         
                         e.HasMorePages = false;
                     };
@@ -381,7 +406,8 @@ namespace SAE.STUDIO.Core.Labels.Servicios
             SaeLabelsTemplate template,
             IEnumerable<Dictionary<string, string>> itemsData,
             string printerName,
-            int copiesPerItem)
+            int copiesPerItem,
+            float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         {
             try
             {
@@ -395,8 +421,14 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                 pd.PrinterSettings.Copies = 1; // Manejaremos las copias mediante páginas repetidas
                 pd.PrintController = new System.Drawing.Printing.StandardPrintController();
 
-                int paperWidth = (int)Math.Round(template.LabelRectangle.Width / 72.0 * 100.0);
-                int paperHeight = (int)Math.Round(template.LabelRectangle.Height / 72.0 * 100.0);
+                int paperWidth = hardwareWidthMm.HasValue 
+                    ? (int)Math.Round((hardwareWidthMm.Value / 25.4) * 100.0)
+                    : (int)Math.Round(template.LabelRectangle.Width / 72.0 * 100.0);
+                    
+                int paperHeight = hardwareHeightMm.HasValue
+                    ? (int)Math.Round((hardwareHeightMm.Value / 25.4) * 100.0)
+                    : (int)Math.Round(template.LabelRectangle.Height / 72.0 * 100.0);
+                    
                 var customSize = new System.Drawing.Printing.PaperSize("Custom Label", paperWidth, paperHeight);
                 pd.DefaultPageSettings.PaperSize = customSize;
                 pd.PrinterSettings.DefaultPageSettings.PaperSize = customSize;
@@ -418,8 +450,13 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                     g.PageUnit = GraphicsUnit.Pixel;
                     float printerDpiX = g.DpiX;
                     float printerDpiY = g.DpiY;
-                    float finalWidthPx = (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
-                    float finalHeightPx = (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
+                    float finalWidthPx = hardwareWidthMm.HasValue
+                        ? (float)((hardwareWidthMm.Value / 25.4) * printerDpiX)
+                        : (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
+                        
+                    float finalHeightPx = hardwareHeightMm.HasValue
+                        ? (float)((hardwareHeightMm.Value / 25.4) * printerDpiY)
+                        : (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
 
                     float renderDpi = 300f;
                     using var highResLabel = RenderToBitmap(template, processedData, new RenderSettings
@@ -433,7 +470,19 @@ namespace SAE.STUDIO.Core.Labels.Servicios
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
                     g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                     
-                    g.DrawImage(highResLabel, 0, 0, finalWidthPx, finalHeightPx);
+                    float templateWidthPx = (float)(template.LabelRectangle.Width / 72.0 * printerDpiX);
+                    float templateHeightPx = (float)(template.LabelRectangle.Height / 72.0 * printerDpiY);
+                    
+                    float scaleX = finalWidthPx / templateWidthPx;
+                    float scaleY = finalHeightPx / templateHeightPx;
+                    float scale = Math.Min(scaleX, scaleY);
+                    
+                    float drawWidth = templateWidthPx * scale;
+                    float drawHeight = templateHeightPx * scale;
+                    float drawX = (finalWidthPx - drawWidth) / 2f;
+                    float drawY = (finalHeightPx - drawHeight) / 2f;
+                    
+                    g.DrawImage(highResLabel, drawX, drawY, drawWidth, drawHeight);
 
                     currentCopyIndex++;
                     if (currentCopyIndex >= copiesPerItem)
@@ -456,7 +505,7 @@ namespace SAE.STUDIO.Core.Labels.Servicios
             }
         }
 
-        private async Task<bool> PrintWithSystemCommand(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies)
+        private async Task<bool> PrintWithSystemCommand(SaeLabelsTemplate template, Dictionary<string, string> data, string printerName, int copies, float? hardwareWidthMm = null, float? hardwareHeightMm = null)
         {
             // Implementación básica para lp (Unix/Linux)
             // Se generaría una imagen temporal y se enviaría a lp

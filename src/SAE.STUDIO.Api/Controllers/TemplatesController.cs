@@ -17,6 +17,7 @@ public sealed class TemplatesController : ControllerBase
     }
 
     [HttpGet(Name = "GetTemplates")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public ActionResult<IEnumerable<EditorTemplateDto>> GetTemplates()
     {
         return Ok(_libraryStore.GetTemplates());
