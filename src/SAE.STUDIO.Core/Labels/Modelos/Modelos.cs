@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using System.Xml.Serialization;
 
@@ -269,4 +271,17 @@ namespace SAE.STUDIO.Core.Labels.Modelos
     public enum TextAlignment { Left, Center, Right }
     public enum VerticalAlignment { Top, Middle, Bottom }
     public enum WrapMode { Word, Character, None }
+
+    public class TemplateMapping
+    {
+        public string TemplateName { get; set; } = string.Empty;
+        public Dictionary<string, VariableSource> Mappings { get; set; } = new Dictionary<string, VariableSource>();
+    }
+
+    public class VariableSource
+    {
+        public string Source { get; set; } = "Custom"; // Producto, Ubicacion, Custom
+        public string Field { get; set; } = string.Empty; // Nombre, Precio, etc.
+        public string? ConstantValue { get; set; }
+    }
 }

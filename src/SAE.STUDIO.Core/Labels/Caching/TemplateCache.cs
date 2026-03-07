@@ -37,6 +37,11 @@ namespace SAE.STUDIO.Core.Labels.Caching
             _cache[filePath] = (template, DateTime.Now);
         }
 
+        public void RemoveTemplate(string filePath)
+        {
+            _cache.TryRemove(filePath, out _);
+        }
+
         public void Clear()
         {
             _cache.Clear();

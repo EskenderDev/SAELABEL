@@ -1,20 +1,25 @@
 using Microsoft.Extensions.Logging;
 using SAE.STUDIO.Core.Labels.Modelos;
 using SAE.STUDIO.Core.Labels.Caching;
+using System.Text.Json;
+using System.IO;
 
 namespace SAE.STUDIO.Core.Labels.Servicios
 {
     public class LabelsTemplateManager
     {
         private readonly string _basePath;
+        private readonly TemplateCache _cache;
         private readonly ILogger<LabelsTemplateManager> _logger;
         private readonly SaeLabelsTemplateService _templateService;
 
         public LabelsTemplateManager(
             ILogger<LabelsTemplateManager> logger,
+            TemplateCache cache,
             SaeLabelsTemplateService templateService)
         {
             _logger = logger;
+            _cache = cache;
             _templateService = templateService;
 
             // Configurar ruta base en una carpeta "Etiquetas" junto al ejecutable
@@ -90,9 +95,49 @@ namespace SAE.STUDIO.Core.Labels.Servicios
 
         public async Task SaveTemplateAsync(string relativePath, SaeLabelsTemplate template)
         {
-            // Implementar guardado si es necesario (XML o JSON)
-            // Por ahora nos enfocamos en lectura
-            throw new NotImplementedException("El guardado de plantillas XML no está implementado aún");
+            var fullPath = Path.Combine(_basePath, relativePath);
+            if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(_basePath)))
+                throw new ArgumentException("Ruta inválida");
+
+            var xml = SaeLabelsTemplateXmlSerializer.Serialize(template);
+            await File.WriteAllTextAsync(fullPath, xml);
+            
+            // Invalidar cache
+            _cache.RemoveTemplate(fullPath);
+        }
+
+        public async Task SaveRawXmlAsync(string relativePath, string xmlContent)
+        {
+            var fullPath = Path.Combine(_basePath, relativePath);
+            if (!Path.GetFullPath(fullPath).StartsWith(Path.GetFullPath(_basePath)))
+                throw new ArgumentException("Ruta inválida");
+
+            await File.WriteAllTextAsync(fullPath, xmlContent);
+            _cache.RemoveTemplate(fullPath);
+        }
+
+        public async Task<TemplateMapping?> GetMappingAsync(string templateRelativePath)
+        {
+            var jsonPath = Path.ChangeExtension(Path.Combine(_basePath, templateRelativePath), ".json");
+            if (!File.Exists(jsonPath)) return null;
+
+            try
+            {
+                var json = await File.ReadAllTextAsync(jsonPath);
+                return JsonSerializer.Deserialize<TemplateMapping>(json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error leyendo mapeo: {jsonPath}");
+                return null;
+            }
+        }
+
+        public async Task SaveMappingAsync(string templateRelativePath, TemplateMapping mapping)
+        {
+            var jsonPath = Path.ChangeExtension(Path.Combine(_basePath, templateRelativePath), ".json");
+            var json = JsonSerializer.Serialize(mapping, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(jsonPath, json);
         }
 
         public async Task DeleteTemplateAsync(string relativePath)
